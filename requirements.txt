@@ -1,4 +1,4 @@
-pyrf24>=1.0.0
+pyrf24>=0.6.0
 numpy>=1.21.0
 matplotlib>=3.5.0
 pyserial>=3.5
