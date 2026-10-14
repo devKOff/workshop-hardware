@@ -1,3 +1,4 @@
+"""Tkinter GUI with Matplotlib for real-time spectrum visualization."""
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import matplotlib
@@ -14,9 +15,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
-from hardware_radio import HardwareRadio
-from sim_radio import SimRadio
-from scanner import SpectrumData, ScannerThread
+from config import RadioConfig, GUIConfig, ScannerConfig, MitigationConfig
+from hardware_radio import RadioFactory, HardwareRadio, SimRadio
+from scanner import SpectrumData, ScannerThread, create_scanner_system
 from mitigation import MitigationEngine, MitigationEvent
 
 logging.basicConfig(
@@ -27,20 +28,28 @@ logger = logging.getLogger(__name__)
 
 WIFI_CHANNELS = {1: 2412, 6: 2437, 11: 2462}
 CHANNELS = list(range(126))
-FREQS = [2400 + c for c in CHANNELS]
 
 
 class RFVisualizerApp:
+    """Main application window."""
+    
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("2.4 GHz ISM Band Spectrum Visualizer & Mitigation")
+        self.root.title("2.4 GHz ISM Band Spectrum Visualizer v2")
         self.root.geometry("1200x900")
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         
+        # Configuration
+        self.gui_config = GUIConfig()
+        self.radio_config = RadioConfig()
+        self.scanner_config = ScannerConfig()
+        self.mit_config = MitigationConfig()
+        
+        # State
         self.radio = None
-        self.spectrum_data = SpectrumData()
-        self.scanner_thread: Optional[ScannerThread] = None
-        self.mitigation_engine: Optional[MitigationEngine] = None
+        self.spectrum_data = None
+        self.scanner_thread = None
+        self.mitigation_engine = None
         
         self._running = False
         self._update_job = None
@@ -49,21 +58,24 @@ class RFVisualizerApp:
         
         self._build_ui()
         self._init_plots()
-        self._start_simulation()
+        self._start_default()
     
     def _build_ui(self):
         """Construct the main UI layout."""
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
+        # Control panel
         control_frame = ttk.LabelFrame(main_frame, text="Controls")
         control_frame.pack(fill=tk.X, pady=(0, 5))
         self._build_control_panel(control_frame)
         
+        # Plots
         plot_frame = ttk.Frame(main_frame)
         plot_frame.pack(fill=tk.BOTH, expand=True)
         self._build_plots(plot_frame)
         
+        # Status bar
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X, pady=(5, 0))
         self._build_status_bar(status_frame)
@@ -72,6 +84,7 @@ class RFVisualizerApp:
         """Build control panel with mode, thresholds, and mitigation controls."""
         row = 0
         
+        # Mode selection
         ttk.Label(parent, text="Mode:").grid(row=row, column=0, padx=5, pady=5, sticky=tk.W)
         self.mode_var = tk.StringVar(value="Simulation")
         mode_combo = ttk.Combobox(parent, textvariable=self.mode_var, 
@@ -79,47 +92,54 @@ class RFVisualizerApp:
         mode_combo.grid(row=row, column=1, padx=5, pady=5)
         mode_combo.bind("<<ComboboxSelected>>", self._on_mode_change)
         
-        ttk.Label(parent, text="Sweep Speed:").grid(row=row, column=2, padx=5, pady=5, sticky=tk.W)
-        self.dwell_var = tk.IntVar(value=130)
+        # Sweep speed
+        ttk.Label(parent, text="Dwell (µs):").grid(row=row, column=2, padx=5, pady=5, sticky=tk.W)
+        self.dwell_var = tk.IntVar(value=self.radio_config.dwell_time_us)
         dwell_scale = ttk.Scale(parent, from_=50, to=2000, variable=self.dwell_var, 
                                  orient=tk.HORIZONTAL, length=150, command=self._on_dwell_change)
         dwell_scale.grid(row=row, column=3, padx=5, pady=5)
-        self.dwell_label = ttk.Label(parent, text="130 µs")
+        self.dwell_label = ttk.Label(parent, text=f"{self.radio_config.dwell_time_us} µs")
         self.dwell_label.grid(row=row, column=4, padx=5, pady=5)
         
+        # Peak decay
         ttk.Label(parent, text="Peak Decay:").grid(row=row, column=5, padx=5, pady=5, sticky=tk.W)
-        self.decay_var = tk.DoubleVar(value=0.995)
+        self.decay_var = tk.DoubleVar(value=self.scanner_config.peak_decay)
         decay_scale = ttk.Scale(parent, from_=0.90, to=0.999, variable=self.decay_var,
                                  orient=tk.HORIZONTAL, length=150, command=self._on_decay_change)
         decay_scale.grid(row=row, column=6, padx=5, pady=5)
-        self.decay_label = ttk.Label(parent, text="0.995")
+        self.decay_label = ttk.Label(parent, text=f"{self.scanner_config.peak_decay:.3f}")
         self.decay_label.grid(row=row, column=7, padx=5, pady=5)
         
         row = 1
+        # Mitigation threshold
         ttk.Label(parent, text="Mitigation Threshold (dBm):").grid(row=row, column=0, padx=5, pady=5, sticky=tk.W)
-        self.threshold_var = tk.DoubleVar(value=-50.0)
+        self.threshold_var = tk.DoubleVar(value=self.mit_config.default_threshold_db)
         thresh_scale = ttk.Scale(parent, from_=-90, to=-10, variable=self.threshold_var,
                                   orient=tk.HORIZONTAL, length=200, command=self._on_threshold_change)
         thresh_scale.grid(row=row, column=1, columnspan=2, padx=5, pady=5, sticky=tk.W)
-        self.threshold_label = ttk.Label(parent, text="-50 dBm")
+        self.threshold_label = ttk.Label(parent, text=f"{self.mit_config.default_threshold_db:.0f} dBm")
         self.threshold_label.grid(row=row, column=3, padx=5, pady=5)
         
+        # Target channels
         ttk.Label(parent, text="Target Channels:").grid(row=row, column=4, padx=5, pady=5, sticky=tk.W)
         self.target_text = tk.Text(parent, height=1, width=30)
         self.target_text.grid(row=row, column=5, columnspan=3, padx=5, pady=5, sticky=tk.W)
-        self.target_text.insert("1.0", "1,6,11")
+        self.target_text.insert("1.0", ",".join(map(str, self.mit_config.default_target_channels)))
         
         row = 2
-        self.arm_btn = tk.Button(parent, text="ARM MITIGATION", bg="green", fg="white",
+        # ARM/DISARM button
+        self.arm_btn = tk.Button(parent, text="ARM MITIGATION", bg="#2e7d32", fg="white",
                                   font=("Arial", 12, "bold"), width=18, command=self._toggle_arm)
         self.arm_btn.grid(row=row, column=0, padx=10, pady=10)
         
-        self.mit_type_var = tk.StringVar(value="carrier")
+        # Mitigation type
+        self.mit_type_var = tk.StringVar(value=self.mit_config.default_type)
         ttk.Radiobutton(parent, text="Carrier Wave", variable=self.mit_type_var, value="carrier",
                          command=self._on_mit_type_change).grid(row=row, column=1, padx=5, pady=5)
         ttk.Radiobutton(parent, text="Packet Noise", variable=self.mit_type_var, value="noise",
                          command=self._on_mit_type_change).grid(row=row, column=2, padx=5, pady=5)
         
+        # Action buttons
         ttk.Button(parent, text="Manual Trigger", command=self._manual_trigger).grid(row=row, column=3, padx=5, pady=5)
         ttk.Button(parent, text="Reset Peak Hold", command=self._reset_peak_hold).grid(row=row, column=4, padx=5, pady=5)
         ttk.Button(parent, text="Export CSV", command=self._export_csv).grid(row=row, column=5, padx=5, pady=5)
@@ -130,7 +150,7 @@ class RFVisualizerApp:
     
     def _build_plots(self, parent):
         """Build matplotlib plots embedded in Tkinter."""
-        self.fig = Figure(figsize=(12, 8), dpi=100)
+        self.fig = Figure(figsize=(12, 8), dpi=self.gui_config.figure_dpi)
         self.fig.patch.set_facecolor('#1e1e1e')
         
         self.ax_spectrum = self.fig.add_subplot(2, 1, 1, facecolor='#2d2d2d')
@@ -149,7 +169,7 @@ class RFVisualizerApp:
         """Initialize spectrum plot."""
         ax = self.ax_spectrum
         ax.set_xlim(0, 125)
-        ax.set_ylim(-110, -20)
+        ax.set_ylim(*self.gui_config.spectrum_ylim)
         ax.set_xlabel("Channel (0-125)", color='white')
         ax.set_ylabel("Power (dBm)", color='white')
         ax.set_title("Real-time Spectrum with Peak Hold", color='white', fontsize=12)
@@ -165,6 +185,7 @@ class RFVisualizerApp:
         self.line_avg, = ax.plot(CHANNELS, np.full(126, -100),
                                   color='#4488ff', linewidth=0.8, alpha=0.7, label='Rolling Avg')
         
+        # Wi-Fi channel markers
         for ch, freq in WIFI_CHANNELS.items():
             ch_idx = freq - 2400
             ax.axvline(ch_idx, color='#ff4444', alpha=0.5, linestyle=':', linewidth=1)
@@ -177,7 +198,7 @@ class RFVisualizerApp:
         """Initialize waterfall plot."""
         ax = self.ax_waterfall
         ax.set_xlim(0, 125)
-        ax.set_ylim(0, 200)
+        ax.set_ylim(0, self.scanner_config.waterfall_depth)
         ax.set_xlabel("Channel (0-125)", color='white')
         ax.set_ylabel("Time (sweeps ago)", color='white')
         ax.set_title("RF Waterfall History", color='white', fontsize=12)
@@ -185,14 +206,14 @@ class RFVisualizerApp:
         for spine in ax.spines.values():
             spine.set_color('gray')
         
-        self.waterfall_data = np.zeros((200, 126), dtype=np.float32)
+        self.waterfall_data = np.full((self.scanner_config.waterfall_depth, 126), -100.0, dtype=np.float32)
         self.waterfall_img = ax.imshow(
             self.waterfall_data,
             aspect='auto',
-            extent=[0, 125, 200, 0],
+            extent=[0, 125, self.scanner_config.waterfall_depth, 0],
             cmap='jet',
-            vmin=-100,
-            vmax=-20,
+            vmin=self.gui_config.waterfall_vlim[0],
+            vmax=self.gui_config.waterfall_vlim[1],
             interpolation='nearest'
         )
         
@@ -207,8 +228,7 @@ class RFVisualizerApp:
     def _build_status_bar(self, parent):
         """Build status bar with sweep rate and system info."""
         self.status_var = tk.StringVar(value="Initializing...")
-        status_label = ttk.Label(parent, textvariable=self.status_var, font=("Consolas", 10))
-        status_label.pack(side=tk.LEFT, padx=10)
+        ttk.Label(parent, textvariable=self.status_var, font=("Consolas", 10)).pack(side=tk.LEFT, padx=10)
         
         self.sweep_rate_var = tk.StringVar(value="0 sweeps/s")
         ttk.Label(parent, textvariable=self.sweep_rate_var, font=("Consolas", 10)).pack(side=tk.RIGHT, padx=10)
@@ -222,20 +242,21 @@ class RFVisualizerApp:
         """Initialize plot data."""
         self._update_plots()
     
-    def _start_simulation(self):
-        """Start with simulation mode."""
+    def _start_default(self):
+        """Start with simulation mode by default."""
         self._sim_mode = True
-        self.radio = SimRadio()
+        self.radio = SimRadio(self.radio_config)
         self.radio.initialize()
         
+        self.spectrum_data = SpectrumData(self.scanner_config)
         self.scanner_thread = ScannerThread(
-            self.radio, self.spectrum_data, dwell_time_us=130,
-            callback=self._on_sweep_complete
+            self.radio, self.spectrum_data, self.radio_config,
+            dwell_time_us=self.radio_config.dwell_time_us
         )
         self.scanner_thread.start()
         
         self.mitigation_engine = MitigationEngine(
-            self.radio, self.spectrum_data,
+            self.radio, self.spectrum_data, self.mit_config,
             event_callback=self._on_mitigation_event
         )
         
@@ -247,24 +268,24 @@ class RFVisualizerApp:
         new_sim = self.mode_var.get() == "Simulation"
         if new_sim == self._sim_mode:
             return
-            
+        
         self._stop_scanner()
         
         if new_sim:
-            self.radio = SimRadio()
+            self.radio = SimRadio(self.radio_config)
             if not self.radio.initialize():
                 messagebox.showerror("Error", "Failed to initialize simulation")
                 self.mode_var.set("Hardware")
                 return
         else:
-            self.radio = HardwareRadio()
+            self.radio = HardwareRadio(self.radio_config)
             if not self.radio.initialize():
                 messagebox.showerror("Hardware Error", 
                     "Failed to initialize nRF24L01+ hardware.\n"
                     "Check SPI wiring and pyrf24 installation.\n"
                     "Falling back to simulation mode.")
                 self.mode_var.set("Simulation")
-                self.radio = SimRadio()
+                self.radio = SimRadio(self.radio_config)
                 self.radio.initialize()
         
         self._start_scanner()
@@ -272,18 +293,17 @@ class RFVisualizerApp:
     
     def _start_scanner(self):
         """Start scanner thread with current radio."""
-        self.spectrum_data = SpectrumData()
+        self.spectrum_data = SpectrumData(self.scanner_config)
         self.scanner_thread = ScannerThread(
-            self.radio, self.spectrum_data, 
-            dwell_time_us=self.dwell_var.get(),
-            callback=self._on_sweep_complete
+            self.radio, self.spectrum_data, self.radio_config,
+            dwell_time_us=self.dwell_var.get()
         )
         self.scanner_thread.start()
         
         if self.mitigation_engine:
             self.mitigation_engine.stop_monitoring()
         self.mitigation_engine = MitigationEngine(
-            self.radio, self.spectrum_data,
+            self.radio, self.spectrum_data, self.mit_config,
             event_callback=self._on_mitigation_event
         )
         if self._armed:
@@ -293,6 +313,10 @@ class RFVisualizerApp:
     def _stop_scanner(self):
         """Stop scanner and mitigation."""
         self._running = False
+        if self._update_job:
+            self.root.after_cancel(self._update_job)
+            self._update_job = None
+        
         if self.scanner_thread:
             self.scanner_thread.stop()
             self.scanner_thread = None
@@ -303,10 +327,6 @@ class RFVisualizerApp:
             self.radio.cleanup()
             self.radio = None
     
-    def _on_sweep_complete(self, sweep_data: np.ndarray):
-        """Callback when sweep completes."""
-        pass
-    
     def _on_mitigation_event(self, event: MitigationEvent):
         """Callback for mitigation events."""
         self.root.after(0, lambda: self._flash_mitigation_alert(event))
@@ -314,7 +334,7 @@ class RFVisualizerApp:
     def _flash_mitigation_alert(self, event: MitigationEvent):
         """Flash alert on mitigation trigger."""
         original_bg = self.arm_btn.cget('bg')
-        self.arm_btn.config(bg='red')
+        self.arm_btn.config(bg='#c62828')
         self.root.after(200, lambda: self.arm_btn.config(bg=original_bg))
     
     def _update_loop(self):
@@ -325,7 +345,7 @@ class RFVisualizerApp:
         self._update_plots()
         self._update_status()
         
-        self._update_job = self.root.after(50, self._update_loop)
+        self._update_job = self.root.after(self.gui_config.update_interval_ms, self._update_loop)
     
     def _update_plots(self):
         """Update matplotlib plots with latest data."""
@@ -339,7 +359,8 @@ class RFVisualizerApp:
         self.line_avg.set_ydata(avg)
         
         if waterfall.shape[0] > 0:
-            self.waterfall_data[:waterfall.shape[0], :] = waterfall
+            rows = min(waterfall.shape[0], self.scanner_config.waterfall_depth)
+            self.waterfall_data[:rows, :] = waterfall[:rows, :]
             self.waterfall_img.set_data(self.waterfall_data)
         
         self.canvas.draw_idle()
@@ -366,7 +387,7 @@ class RFVisualizerApp:
         dwell = int(float(val))
         self.dwell_label.config(text=f"{dwell} µs")
         if self.scanner_thread:
-            self.scanner_thread.set_dwell_time(dwell)
+            self.scanner_thread.dwell_time_us = dwell
     
     def _on_decay_change(self, val):
         decay = float(val)
@@ -387,24 +408,25 @@ class RFVisualizerApp:
         """Toggle mitigation armed state."""
         if not self.mitigation_engine:
             return
-            
+        
         self._armed = not self._armed
         if self._armed:
             try:
-                targets = [int(c.strip()) for c in self.target_text.get("1.0", tk.END).split(",") if c.strip()]
+                text = self.target_text.get("1.0", tk.END).strip()
+                targets = [int(c.strip()) for c in text.split(",") if c.strip()]
                 self.mitigation_engine.set_target_channels(targets)
                 self.mitigation_engine.set_threshold(self.threshold_var.get())
                 self.mitigation_engine.set_mitigation_type(self.mit_type_var.get())
                 self.mitigation_engine.arm()
                 self.mitigation_engine.start_monitoring()
-                self.arm_btn.config(text="DISARM MITIGATION", bg="red")
+                self.arm_btn.config(text="DISARM MITIGATION", bg="#c62828")
             except ValueError:
-                messagebox.showerror("Error", "Invalid channel list")
+                messagebox.showerror("Error", "Invalid channel list (use comma-separated integers)")
                 self._armed = False
         else:
             self.mitigation_engine.disarm()
             self.mitigation_engine.stop_monitoring()
-            self.arm_btn.config(text="ARM MITIGATION", bg="green")
+            self.arm_btn.config(text="ARM MITIGATION", bg="#2e7d32")
     
     def _manual_trigger(self):
         """Manually trigger mitigation on selected channel."""
@@ -413,7 +435,8 @@ class RFVisualizerApp:
             return
         
         try:
-            targets = [int(c.strip()) for c in self.target_text.get("1.0", tk.END).split(",") if c.strip()]
+            text = self.target_text.get("1.0", tk.END).strip()
+            targets = [int(c.strip()) for c in text.split(",") if c.strip()]
             if not targets:
                 return
             channel = targets[0]
@@ -491,11 +514,11 @@ class RFVisualizerApp:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         text.config(yscrollcommand=scrollbar.set)
         
-        text.insert(tk.END, "Timestamp,Channel,Freq,Peak,Duration,Type,Triggered\n")
+        text.insert(tk.END, "Timestamp,Channel,Freq,Peak,Duration,Type,Triggered,Reason\n")
         for e in reversed(events):
             text.insert(tk.END, 
                 f"{e.timestamp.isoformat()},Ch{e.channel},{e.frequency_mhz:.1f}MHz,"
-                f"{e.peak_intensity_db:.1f}dBm,{e.duration_ms}ms,{e.mitigation_type},{e.triggered}\n")
+                f"{e.peak_intensity_db:.1f}dBm,{e.duration_ms}ms,{e.mitigation_type},{e.triggered},{e.reason}\n")
         
         text.config(state=tk.DISABLED)
     
