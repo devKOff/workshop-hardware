@@ -22,10 +22,11 @@ class HardwareRadio:
     FREQ_BASE_MHZ = 2400
     SPI_SPEED_HZ = 10_000_000
     
-    def __init__(self, ce_pin: int = 25, csn_pin: int = 8, spi_speed: int = SPI_SPEED_HZ):
+    def __init__(self, ce_pin: int = 25, csn_pin: int = 8, spi_speed: int = SPI_SPEED_HZ, spi_device: str = "/dev/spidev0.0"):
         self.ce_pin = ce_pin
         self.csn_pin = csn_pin
         self.spi_speed = spi_speed
+        self.spi_device = spi_device
         self._radio: Optional[RF24] = None
         self._lock = threading.Lock()
         self._initialized = False
@@ -41,7 +42,7 @@ class HardwareRadio:
                 return True
                 
             try:
-                self._radio = RF24(self.ce_pin, self.csn_pin, self.spi_speed)
+                self._radio = RF24(self.ce_pin, self.csn_pin, self.spi_speed, self.spi_device)
                 if not self._radio.begin():
                     logger.error("Failed to initialize nRF24L01+ radio")
                     return False
