@@ -1,7 +1,7 @@
 """Channel classification module for RF Spectrum Visualizer V5."""
 
 import logging
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 from dataclasses import dataclass
 from enum import Enum
 

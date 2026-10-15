@@ -181,11 +181,13 @@ class ReportGenerator:
                 "supporting_observations", "severity", "detection_reason",
                 "confidence", "state", "acknowledged",
             ]
-            writer.writerow({fn: fn for fn in anomaly_fieldnames})
+            # Write header for anomaly section
+            anomaly_writer = csv.DictWriter(output, fieldnames=anomaly_fieldnames)
+            anomaly_writer.writerow({fn: fn for fn in anomaly_fieldnames})
             
             for anomaly in self._anomaly_detector.get_active_anomalies():
                 row = anomaly.to_dict()
-                writer.writerow({fn: row.get(fn, "") for fn in anomaly_fieldnames})
+                anomaly_writer.writerow({fn: row.get(fn, "") for fn in anomaly_fieldnames})
         
         return count
     

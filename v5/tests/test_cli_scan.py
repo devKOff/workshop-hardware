@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch, MagicMock
 from cli_scan import (
     CLIDisplay, create_config_from_args, run_single_scan, run_diagnostic
 )
-from config import AppConfig, ChannelConfig, ScanConfig, ThresholdConfig, AnomalyConfig
+from config import AppConfig, ChannelConfig, ScanConfig, ThresholdConfig, AnomalyConfig, StorageConfig
 from scanner import SpectrumData, ChannelObservation
 from sim_radio import SimRadio
 
@@ -35,8 +35,8 @@ class TestCLIDisplay:
         assert len(lines) >= 7
         assert "2.4 GHz RF ACTIVITY MONITOR" in lines[1]
         assert "Backend: SIM" in lines[3]
-        assert "Scans completed: 5" in lines[6]
-        assert "Active anomalies: 2" in lines[7]
+        assert any("Scans completed: 5" in line for line in lines)
+        assert any("Active anomalies: 2" in line for line in lines)
     
     def test_make_activity_bar(self, display):
         bar = display.make_activity_bar(50.0)

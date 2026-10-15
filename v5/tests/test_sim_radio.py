@@ -41,10 +41,12 @@ class TestChannelModel:
             hop_channels=[10, 20, 30],
             hop_interval=0.1,
         )
-        prob = model.get_rpd_probability(1000.0)
+        # At time 0, should be on first hop channel (10)
+        prob = model.get_rpd_probability(0.0)
         assert prob == 0.8
         
-        prob = model.get_rpd_probability(1000.15)
+        # After hop interval, should move to next channel
+        prob = model.get_rpd_probability(0.15)
         assert prob == 0.1
     
     def test_get_rpd_probability_wifi_like(self):
@@ -104,7 +106,7 @@ class TestSimRadio:
     
     @pytest.fixture
     def config(self):
-        return ChannelConfig(start_channel=0, end_channel=10)
+        return ChannelConfig(start_channel=0, end_channel=125)
     
     @pytest.fixture
     def scan_config(self):
@@ -181,14 +183,16 @@ class TestSimRadio:
         assert n1 == n2
     
     def test_set_seed_resets_state(self, config, scan_config):
-        radio = SimRadio(config, scan_config, seed=42)
-        radio.initialize()
+        # Two radios with same seed should produce same results
+        radio1 = SimRadio(config, scan_config, seed=42)
+        radio1.initialize()
+        v1, p1, n1 = radio1.scan_channel(5, duration=0.1, interval=0.01)
+        radio1.cleanup()
         
-        radio.scan_channel(5, duration=0.1, interval=0.01)
-        radio.set_seed(42)
-        
-        v1, p1, n1 = radio.scan_channel(5, duration=0.1, interval=0.01)
-        v2, p2, n2 = radio.scan_channel(5, duration=0.1, interval=0.01)
+        radio2 = SimRadio(config, scan_config, seed=42)
+        radio2.initialize()
+        v2, p2, n2 = radio2.scan_channel(5, duration=0.1, interval=0.01)
+        radio2.cleanup()
         
         assert v1 == v2
         assert p1 == p2

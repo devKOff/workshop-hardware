@@ -1,0 +1,16 @@
+# RF Spectrum Visualizer V5 - Requirements
+# Core dependencies
+numpy>=1.21.0
+matplotlib>=3.5.0
+
+# Optional hardware dependencies (install on Raspberry Pi)
+# pyrf24>=0.6.0
+# spidev>=3.5
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Type checking
+mypy>=1.0.0
+types-requests>=2.31.0

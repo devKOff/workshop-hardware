@@ -28,6 +28,7 @@ class TestReportGenerator:
     @pytest.fixture
     def spectrum_data(self, config):
         data = SpectrumData(config)
+        data.set_backend("sim")
         for ch in range(6):
             obs = ChannelObservation(
                 timestamp=time.time(),

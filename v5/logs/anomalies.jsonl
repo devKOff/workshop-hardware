@@ -1,0 +1,12 @@
+{"timestamp":"2026-10-15T12:40:01.840925+00:00","level":"INFO","logger":"rf_visualizer.scanner","message":"Scanner started with sim backend"}
+{"timestamp":"2026-10-15T12:41:25.455030+00:00","level":"INFO","logger":"rf_visualizer.scanner","message":"Scanner started with sim backend"}
+{"timestamp":"2026-10-15T12:42:29.164635+00:00","level":"INFO","logger":"rf_visualizer.scanner","message":"Scanner started with sim backend"}
+{"timestamp":"2026-10-15T12:42:29.279135+00:00","level":"INFO","logger":"rf_visualizer.reports","message":"Exported JSON: exports\\scan_sim_20261015_181229.json"}
+{"timestamp":"2026-10-15T12:42:29.282135+00:00","level":"INFO","logger":"rf_visualizer.reports","message":"Exported CSV: exports\\scan_sim_20261015_181229.csv"}
+{"timestamp":"2026-10-15T12:42:29.293456+00:00","level":"INFO","logger":"rf_visualizer.reports","message":"Exported JSONL: exports\\scan_sim_20261015_181229.jsonl"}
+{"timestamp":"2026-10-15T12:42:29.293456+00:00","level":"INFO","logger":"rf_visualizer.reports","message":"Exported anomaly JSONL: exports\\scan_sim_20261015_181229_anomalies.jsonl"}
+{"timestamp":"2026-10-15T12:43:04.049247+00:00","level":"INFO","logger":"rf_visualizer.scanner","message":"Scanner started with sim backend"}
+{"timestamp":"2026-10-15T12:43:04.174171+00:00","level":"INFO","logger":"rf_visualizer.reports","message":"Exported JSON: exports\\scan_sim_20261015_181304.json"}
+{"timestamp":"2026-10-15T12:43:04.180141+00:00","level":"INFO","logger":"rf_visualizer.reports","message":"Exported CSV: exports\\scan_sim_20261015_181304.csv"}
+{"timestamp":"2026-10-15T12:43:04.184140+00:00","level":"INFO","logger":"rf_visualizer.reports","message":"Exported JSONL: exports\\scan_sim_20261015_181304.jsonl"}
+{"timestamp":"2026-10-15T12:43:04.184140+00:00","level":"INFO","logger":"rf_visualizer.reports","message":"Exported anomaly JSONL: exports\\scan_sim_20261015_181304_anomalies.jsonl"}

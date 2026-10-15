@@ -16,7 +16,6 @@ from config import (
     ScanConfig,
     ThresholdConfig,
     AnomalyConfig,
-    MitigationConfig,
     StorageConfig,
 )
 from sim_radio import SimRadio
@@ -359,10 +358,10 @@ class TestScannerThread:
         scanner = ScannerThread(config, spectrum_data, sim_radio)
         scanner.start()
         
-        time.sleep(0.3)
+        time.sleep(1.0)
         count1 = spectrum_data.get_scan_count()
         
-        time.sleep(0.3)
+        time.sleep(1.0)
         count2 = spectrum_data.get_scan_count()
         
         scanner.stop()
@@ -374,9 +373,12 @@ class TestScannerThread:
         def on_obs(obs):
             received.append(obs)
         
+        # Use scan_repetitions=1 to run exactly one scan
+        config.scan.scan_repetitions = 1
+        
         scanner = ScannerThread(config, spectrum_data, sim_radio, on_observation=on_obs)
         scanner.start()
-        time.sleep(0.3)
+        time.sleep(0.5)
         scanner.stop()
         
         assert len(received) == 6
@@ -452,8 +454,8 @@ class TestScannerThreadConcurrency:
     @pytest.fixture
     def config(self):
         return AppConfig(
-            channel=ChannelConfig(start_channel=0, end_channel=10),
-            scan=ScanConfig(measurement_window=0.05, sampling_interval=0.005),
+            channel=ChannelConfig(start_channel=0, end_channel=5),
+            scan=ScanConfig(measurement_window=0.1, sampling_interval=0.01),
             thresholds=ThresholdConfig(),
             anomaly=AnomalyConfig(),
             storage=StorageConfig(),

@@ -368,6 +368,9 @@ def run_cli_scan(config: AppConfig, output_format: str = "table",
 
 def run_single_scan(config: AppConfig) -> int:
     """Run a single complete scan and exit."""
+    # Ensure we only run one scan
+    config.scan.scan_repetitions = 1
+    
     spectrum_data = SpectrumData(config)
     
     if config.default_backend == "hardware":

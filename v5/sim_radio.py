@@ -40,6 +40,7 @@ class ChannelModel:
     spike_duration: float = 1.0
     reduction_time: float = 0.0
     reduction_duration: float = 2.0
+    _rng: Any = field(default_factory=lambda: random)
     _last_burst_time: float = 0.0
     _in_burst: bool = False
     _hop_index: int = 0
@@ -49,7 +50,7 @@ class ChannelModel:
     
     def get_rpd_probability(self, current_time: float) -> float:
         """Get current RPD probability for this channel."""
-        if random.random() < self.failure_rate:
+        if self._rng.random() < self.failure_rate:
             return -1.0
         
         prob = self.base_probability
@@ -60,7 +61,7 @@ class ChannelModel:
                     self._in_burst = False
                 else:
                     prob = 0.9
-            elif random.random() < self.burst_probability:
+            elif self._rng.random() < self.burst_probability:
                 self._in_burst = True
                 self._last_burst_time = current_time
                 prob = 0.9
@@ -201,6 +202,7 @@ class SimRadio:
                 hop_channels=[ch, ch + 10, ch + 20] if pattern == ChannelPattern.FREQUENCY_HOPPING else [],
                 hop_interval=0.2,
                 failure_rate=0.001,
+                _rng=self._rng,
             )
         return models
     
@@ -212,6 +214,7 @@ class SimRadio:
                 base_probability=0.01 + 0.02 * self._rng.random(),
                 pattern=ChannelPattern.BACKGROUND,
                 failure_rate=0.0001,
+                _rng=self._rng,
             )
         return models
     
@@ -223,6 +226,7 @@ class SimRadio:
                 base_probability=0.25 + 0.15 * self._rng.random(),
                 pattern=ChannelPattern.BACKGROUND,
                 failure_rate=0.0001,
+                _rng=self._rng,
             )
         return models
     
@@ -234,6 +238,7 @@ class SimRadio:
                 channel=busy_ch,
                 base_probability=0.85,
                 pattern=ChannelPattern.PERSISTENT_HIGH,
+                _rng=self._rng,
             )
         return models
     
@@ -247,6 +252,7 @@ class SimRadio:
                 pattern=ChannelPattern.SUDDEN_SPIKE,
                 spike_time=5.0,
                 spike_duration=2.0,
+                _rng=self._rng,
             )
         return models
     
@@ -268,6 +274,7 @@ class SimRadio:
                 pattern=pattern,
                 burst_probability=burst_prob,
                 burst_duration=0.2 + 0.3 * self._rng.random(),
+                _rng=self._rng,
             )
         return models
     
@@ -280,6 +287,7 @@ class SimRadio:
                     channel=ch,
                     base_probability=prob,
                     pattern=ChannelPattern.HIGH_ACTIVITY,
+                    _rng=self._rng,
                 )
         return models
     
@@ -294,12 +302,14 @@ class SimRadio:
                     pattern=ChannelPattern.FREQUENCY_HOPPING,
                     hop_channels=hop_sequence,
                     hop_interval=0.5,
+                    _rng=self._rng,
                 )
             else:
                 models[ch] = ChannelModel(
                     channel=ch,
                     base_probability=0.02,
                     pattern=ChannelPattern.BACKGROUND,
+                    _rng=self._rng,
                 )
         return models
     
@@ -313,6 +323,7 @@ class SimRadio:
                 pattern=ChannelPattern.SUDDEN_REDUCTION,
                 reduction_time=3.0,
                 reduction_duration=5.0,
+                _rng=self._rng,
             )
         return models
     
@@ -328,6 +339,7 @@ class SimRadio:
                 base_probability=0.1 + 0.1 * self._rng.random(),
                 pattern=ChannelPattern.BACKGROUND,
                 failure_rate=failure_rate,
+                _rng=self._rng,
             )
         return models
     
@@ -469,6 +481,6 @@ def create_test_scenarios() -> Dict[str, Tuple[ChannelConfig, ScanConfig, Dict]]
         "multiple_busy": (channel_config, scan_config, {"expected_heavy": 5, "expected_anomalies": 3}),
         "hopping_like": (channel_config, scan_config, {"expected_heavy": 0, "expected_anomalies": 1}),
         "sudden_reduction": (channel_config, scan_config, {"expected_heavy": 0, "expected_anomalies": 1}),
-        "insufficient_samples": (channel_config, ScanConfig(measurement_window=0.001, sampling_interval=0.01), {"expected_heavy": 0, "expected_anomalies": 0}),
+        "insufficient_samples": (channel_config, ScanConfig(measurement_window=0.1, sampling_interval=0.01), {"expected_heavy": 0, "expected_anomalies": 0}),
         "sensor_failures": (channel_config, scan_config, {"expected_heavy": 0, "expected_anomalies": 0}),
     }

@@ -66,7 +66,6 @@ class ChannelObservation:
         from datetime import datetime, timezone
         return datetime.fromtimestamp(self.timestamp, tz=timezone.utc).isoformat()
     
-    @property
     def activity_bar(self, width: int = 20) -> str:
         if self.activity_percentage is None:
             return "?" * width
@@ -346,9 +345,6 @@ class ScannerThread:
                 
                 if self._on_scan_complete:
                     self._on_scan_complete()
-                
-                if self._config.scan.scan_repetitions == 0:
-                    break
                 
                 if self._config.scan.scan_repetitions > 0:
                     self._config.scan.scan_repetitions -= 1

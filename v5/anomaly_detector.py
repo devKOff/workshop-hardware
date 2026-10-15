@@ -102,6 +102,7 @@ class Anomaly:
 class BaselineData:
     """Rolling baseline for a channel."""
     channel: int
+    min_samples_for_established: int = 10
     observations: deque = field(default_factory=lambda: deque(maxlen=100))
     mean_activity: float = 0.0
     std_activity: float = 0.0
@@ -119,14 +120,14 @@ class BaselineData:
             self.mean_activity = self.observations[0] if self.observations else 0.0
             self.std_activity = 0.0
             self.sample_count = len(self.observations)
-            self.is_established = self.sample_count >= 10
+            self.is_established = self.sample_count >= self.min_samples_for_established
             return
         
         self.sample_count = len(self.observations)
         self.mean_activity = sum(self.observations) / self.sample_count
         variance = sum((x - self.mean_activity) ** 2 for x in self.observations) / self.sample_count
         self.std_activity = variance ** 0.5
-        self.is_established = self.sample_count >= 10
+        self.is_established = self.sample_count >= self.min_samples_for_established
     
     def get_stats(self) -> Dict[str, Any]:
         return {
@@ -219,7 +220,10 @@ class AnomalyDetector:
     
     def _update_baseline(self, obs: ChannelObservation) -> None:
         if obs.channel not in self._baselines:
-            self._baselines[obs.channel] = BaselineData(channel=obs.channel)
+            self._baselines[obs.channel] = BaselineData(
+                channel=obs.channel,
+                min_samples_for_established=self._config.baseline_learning_scans
+            )
         
         if obs.data_sufficient and obs.activity_percentage is not None:
             self._baselines[obs.channel].add_observation(obs.activity_percentage)
