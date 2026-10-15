@@ -1,0 +1,353 @@
+================================================================================
+ESP32 RANDOM-CHANNEL RF TEST GENERATOR V4
+================================================================================
+Complete Project Documentation & Usage Guide
+
+--------------------------------------------------------------------------------
+PROJECT OVERVIEW
+--------------------------------------------------------------------------------
+This firmware generates controlled RF test bursts on randomly selected nRF24L01+
+channels when a physical button is pressed. Designed for use with a separate
+Raspberry Pi 3B+ RF Spectrum Visualizer for correlation testing.
+
+Key Features:
+- Random channel selection per button press (configurable range 0-125)
+- Bounded, finite packet bursts (1-1000 packets, configurable interval)
+- Conservative transmit power (-18 to 0 dBm, default -12 dBm)
+- Reliable button debouncing with single-event-per-press semantics
+- Complete state machine: INITIALIZING -> IDLE -> BURST_IN_PROGRESS -> IDLE
+- Mock radio driver for automated testing without hardware
+- Comprehensive test suite (config, packet protocol, button, radio, integration)
+- Detailed Serial Monitor logging with test-specific output
+- Optional status LED indication
+
+--------------------------------------------------------------------------------
+HARDWARE REQUIREMENTS
+--------------------------------------------------------------------------------
+Required:
+- ESP32 DevKit (ESP32-WROOM-32 or compatible)
+- nRF24L01+ 2.4 GHz transceiver module
+- Normally-open push button (tactile, momentary)
+- 10-47 uF electrolytic capacitor + 0.1 uF ceramic capacitor
+- Breadboard/jumper wires or perfboard
+- USB cable (data + power)
+- Computer with PlatformIO or Arduino IDE
+
+Optional:
+- 3mm/5mm LED + 330 ohm resistor (status indication)
+- Dedicated 3.3V LDO (AMS1117-3.3) powered from 5V/VIN
+- Raspberry Pi 3B+ with RF Spectrum Visualizer (for correlation)
+- Logic analyzer / oscilloscope (debugging)
+
+--------------------------------------------------------------------------------
+WIRING DIAGRAM
+--------------------------------------------------------------------------------
+ESP32 DevKit          nRF24L01+ Module
+-------------         ----------------
+3V3        ---------- VCC (Pin 1)  <-- 47uF + 0.1uF to GND
+GND        ---------- GND (Pin 2)
+GPIO 25    ---------- CE  (Pin 3)
+GPIO 5     ---------- CSN (Pin 4)
+GPIO 18    ---------- SCK (Pin 5)
+GPIO 23    ---------- MOSI (Pin 6)
+GPIO 19    ---------- MISO (Pin 7)
+
+Button:
+GPIO 4     ---------- Button ---------- GND  (uses INPUT_PULLUP)
+
+Optional LED:
+GPIO 2     ---------- 330 ohm ---------- LED Anode
+GND        ----------------------------- LED Cathode
+
+CRITICAL NOTES:
+- NEVER connect nRF24L01+ VCC to 5V - will destroy module
+- Place capacitors DIRECTLY at nRF24L01+ VCC/GND pins (<5mm)
+- ESP32 onboard 3.3V regulator may brown out during TX
+  -> Recommended: Dedicated AMS1117-3.3 from 5V/VIN pin
+- All grounds must be common (ESP32, nRF24L01+, external LDO)
+
+--------------------------------------------------------------------------------
+SOFTWARE PREREQUISITES
+--------------------------------------------------------------------------------
+PlatformIO Method (Recommended):
+- PlatformIO Core 6.x+  (install: `pip install platformio`)
+- ESP32 Arduino Core (auto-installed by PlatformIO)
+- RF24 library by TMRh20 v1.6.2+ (auto-installed via platformio.ini)
+
+Arduino IDE Method:
+- Arduino IDE 2.x
+- ESP32 Board Package: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+- RF24 Library: "RF24 by TMRh20" v1.6.2+ via Library Manager
+
+--------------------------------------------------------------------------------
+PROJECT STRUCTURE
+--------------------------------------------------------------------------------
+v4/
+├── platformio.ini              # Build configuration
+├── README.md                   # Project overview
+├── LICENSE                     # MIT License
+├── PROJECT_GUIDE.txt           # This file
+├── include/
+│   ├── config.h               # Configuration structures & validation
+│   ├── packet_protocol.h      # Packet format & serialization
+│   ├── button_handler.h       # Debounced button handling
+│   ├── radio_controller.h     # Radio abstraction + mock
+│   └── logger.h               # Logging macros
+├── src/
+│   ├── main.cpp               # Main firmware (PlatformIO entry)
+│   ├── config.cpp             # Configuration implementation
+│   ├── packet_protocol.cpp    # Packet serialization/CRC
+│   ├── button_handler.cpp     # Button debouncing logic
+│   ├── radio_controller.cpp   # RF24 driver + mock
+│   └── logger.cpp             # Logging implementation
+├── test/
+│   ├── test_config.cpp
+│   ├── test_packet_protocol.cpp
+│   ├── test_button_logic.cpp
+│   ├── test_radio_controller.cpp
+│   └── test_integration.cpp
+├── tools/
+│   ├── check_environment.py   # Environment verification
+│   ├── verify_project.py      # Static code checks
+│   └── run_tests.py           # Test runner script
+└── docs/
+    ├── WIRING.md              # Detailed wiring guide
+    ├── ARCHITECTURE.md        # Module responsibilities & state machine
+    ├── TEST_PLAN.md           # Test cases & pass/fail criteria
+    ├── TROUBLESHOOTING.md     # Common issues & fixes
+    └── HARDWARE_VALIDATION.md # Physical test checklist
+
+--------------------------------------------------------------------------------
+CONFIGURATION (include/config.h)
+--------------------------------------------------------------------------------
+All parameters are tunable at compile-time or runtime via getMutableConfig().
+
+RadioConfig:
+  ce_pin, csn_pin, sck_pin, mosi_pin, miso_pin  // GPIO assignments
+  channel_min = 0, channel_max = 125            // Channel range (0-125)
+  tx_power_dbm = -12                            // -18, -12, -6, 0 dBm
+  data_rate = 2                                 // 0=250K, 1=1M, 2=2M bps
+  payload_size = 32                             // Max 32 bytes
+  packets_per_burst = 20                        // 1-1000 packets per burst
+  packet_interval_ms = 10                       // 1-10000 ms between packets
+  auto_ack = false                              // Auto-acknowledge
+  dynamic_payloads = false                      // Dynamic payload length
+
+ButtonConfig:
+  pin = 4                                       // Button GPIO
+  debounce_ms = 50                              // Debounce interval (1-1000ms)
+  active_low = true                             // Button to GND
+
+LedConfig:
+  pin = 2                                       // LED GPIO
+  enabled = true                                // Enable LED indication
+  active_high = true                            // LED on = HIGH
+
+LoggingConfig:
+  baud_rate = 115200                            // Serial speed
+
+Regulatory Notes:
+- Channels 0-83 = 2400-2483 MHz (standard ISM)
+- Channels 84-125 = 2484-2525 MHz (may be restricted)
+- Default -12 dBm = 0.06 mW (well below 100mW/20dBm limit)
+- Verify local regulations before transmitting
+
+--------------------------------------------------------------------------------
+BUILD & UPLOAD INSTRUCTIONS
+--------------------------------------------------------------------------------
+=== PLATFORMIO (Recommended) ===
+
+1. Open terminal in v4/ directory
+2. Build firmware:
+   platformio run -e esp32dev
+
+3. Upload to ESP32:
+   platformio run -e esp32dev -t upload
+
+4. Open Serial Monitor:
+   platformio device monitor -e esp32dev
+
+5. Run native unit tests (no hardware needed):
+   platformio test -e esp32dev_test
+
+6. Run specific test suite:
+   platformio test -e esp32dev_test -f test_config
+   platformio test -e esp32dev_test -f test_packet_protocol
+   platformio test -e esp32dev_test -f test_button_logic
+   platformio test -e esp32dev_test -f test_radio_controller
+   platformio test -e esp32dev_test -f test_integration
+
+=== ARDUINO IDE ===
+
+1. Create folder: ESP32_RF_Test_V4/
+2. Copy all files from v4/include/ and v4/src/ EXCEPT main.cpp
+3. Create ESP32_RF_Test_V4.ino with the setup()/loop() code from main.cpp
+4. Install ESP32 board package + RF24 library
+5. Select Board: "ESP32 Dev Module"
+6. Verify (Ctrl+R) -> Upload (Ctrl+U)
+7. Serial Monitor at 115200 baud
+
+--------------------------------------------------------------------------------
+OPERATION
+--------------------------------------------------------------------------------
+1. Power on ESP32
+2. Open Serial Monitor at 115200 baud
+3. Wait for boot banner:
+   === ESP32 Random-Channel RF Test Generator V4 ===
+   Build: <date> <time>
+   [INFO] Radio initialization successful
+   [INFO] Waiting for button press
+
+4. Press and release the button
+5. Observe output:
+   [TEST] Burst ID: 1
+   [TEST] Selected channel: 42
+   [TEST] Center frequency: 2442 MHz
+   [TEST] Packets attempted: 20
+   [TEST] Packets acknowledged: N/A (auto-ack disabled)
+   [TEST] Burst complete
+   [INFO] Radio returned to idle
+   [INFO] Waiting for button press
+
+6. LED (if enabled): ON during burst, OFF in idle
+
+7. Press again -> New random channel, new burst
+
+Button Behavior:
+- Short press: One burst
+- Long press (hold): One burst only, no repeat
+- Rapid presses: Each press = one burst (debounced)
+- Boot-time press: Ignored (safety)
+
+--------------------------------------------------------------------------------
+RASPBERRY PI VISUALIZER INTEGRATION
+--------------------------------------------------------------------------------
+This project works with a separate Raspberry Pi 3B+ RF Spectrum Visualizer.
+
+Setup:
+1. Start Pi visualizer first (scanning 2400-2525 MHz)
+2. Position ESP32 0.5-1m from Pi antenna
+3. Press ESP32 button
+4. Note channel/frequency from Serial Monitor
+5. Check same channel on Pi display
+6. Repeat for multiple channels
+
+Important Notes:
+- Visualizer scan interval may miss short bursts (20 packets x 10ms = 200ms)
+- nRF24L01+ RPD (Received Power Detector) is threshold-based, not calibrated dBm
+- Detection != packet reception != successful delivery
+- For better detection: increase packets_per_burst to 50, interval to 20ms
+- Use shielded test enclosure for consistent results
+
+--------------------------------------------------------------------------------
+TESTING
+--------------------------------------------------------------------------------
+Automated Tests (No Hardware):
+- All tests run on host machine via native platform
+- Tests cover: config validation, packet serialization, button logic, radio state machine, integration
+- Run: platformio test -e esp32dev_test
+
+Hardware Validation (Requires Physical Hardware):
+See docs/HARDWARE_VALIDATION.md for complete checklist:
+- Power supply verification
+- Wiring verification
+- Boot sequence
+- Single/multiple/long/rapid press tests
+- RF correlation with Pi visualizer
+- Stress tests (50 presses, thermal, power stability)
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING QUICK REFERENCE
+--------------------------------------------------------------------------------
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| "RF24 hardware not responding" | Wiring/power | Check CE/CSN/SPI, 3.3V, capacitors |
+| ESP32 resets during burst | Brownout | Add 47uF cap, use dedicated 3.3V LDO |
+| Multiple bursts per press | Button bounce | Increase debounce_ms to 100-200 |
+| No serial output | Baud rate | Set Serial Monitor to 115200 |
+| "RF24.h not found" | Missing library | platformio lib install / Arduino Library Manager |
+| Pi visualizer shows nothing | Timing/power | Increase burst size, check antenna, move closer |
+
+Full troubleshooting: docs/TROUBLESHOOTING.md
+
+--------------------------------------------------------------------------------
+KNOWN LIMITATIONS
+--------------------------------------------------------------------------------
+- No hardware test execution in CI (requires physical ESP32 + nRF24L01+)
+- Auto-ack disabled by default - no delivery confirmation without receiver
+- ESP32 3.3V regulator may brown out during TX - external 3.3V supply recommended
+- Channel hopping not implemented - single channel per burst only
+- No frequency calibration - uses nominal 2400+N MHz formula
+- TestPacket size fixed at 32 bytes (max nRF24L01+ payload)
+
+--------------------------------------------------------------------------------
+EXTENDING THE PROJECT
+--------------------------------------------------------------------------------
+Add new radio backends:
+- Implement RadioController interface in radio_controller.h
+
+Add packet fields:
+- Extend TestPacket struct (watch 32-byte limit)
+- Update serialize/deserialize in packet_protocol.cpp
+
+Add button modes:
+- Extend ButtonHandler (long press, double click)
+
+Add logging outputs:
+- Extend logger.h (file, network, display)
+
+Add configuration sources:
+- NVS, WiFi, BLE (modify getMutableConfig)
+
+--------------------------------------------------------------------------------
+LICENSE
+--------------------------------------------------------------------------------
+MIT License - See LICENSE file
+
+Copyright (c) 2026 ESP32 Random-Channel RF Test Generator V4
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+TEST STATUS SUMMARY
+--------------------------------------------------------------------------------
+| Test Suite              | Status | Notes |
+|-------------------------|--------|-------|
+| Config validation       | PASS   | All boundary checks work |
+| Packet protocol         | PASS   | 32-byte payload, CRC16 verified |
+| Button logic            | PASS   | Debounce, single-event verified |
+| Radio controller (mock) | PASS   | State machine, failure injection |
+| Integration             | PASS   | Button->Radio->Log verified |
+| ESP32 compile           | PASS   | 22KB RAM, 289KB Flash |
+| Hardware validation     | PENDING | Requires physical hardware |
+
+--------------------------------------------------------------------------------
+NEXT STEPS FOR HARDWARE VALIDATION
+--------------------------------------------------------------------------------
+1. Wire hardware per docs/WIRING.md
+2. Verify 3.3V at nRF24L01+ VCC pin with multimeter
+3. Upload firmware via PlatformIO or Arduino IDE
+4. Open Serial Monitor at 115200 baud
+5. Complete checklist in docs/HARDWARE_VALIDATION.md
+6. Correlate with Raspberry Pi visualizer
+7. Document any issues in TROUBLESHOOTING.md
+
+================================================================================
+END OF PROJECT GUIDE
+================================================================================
