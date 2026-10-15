@@ -1,0 +1,120 @@
+RF SPECTRUM VISUALIZER - PROJECT SUMMARY
+=========================================
+
+Project Location: E:\GIT\workshop\v3\
+
+CORE MODULES
+============
+| File                        | Purpose                                                |
+|-----------------------------|--------------------------------------------------------|
+| config.py                   | Validated dataclasses for all settings                |
+| exceptions.py               | Custom exception hierarchy                             |
+| logging_config.py           | JSON Lines logging for countermeasures                |
+| sim_radio.py                | Deterministic simulation backend (ChannelModel, patterns) |
+| hardware_radio.py           | Hardware backend with pyrf24, SPI error handling      |
+| scanner.py                  | SpectrumData (thread-safe), ScannerThread (worker)    |
+| mitigation.py               | MitigationEngine (ARMED/DISARMED, alerts, recommendations) |
+| cli_scan.py                 | Full CLI with table/JSON/CSV output, Unicode bars     |
+| app.py                      | Tkinter GUI with spectrum, waterfall, channel table   |
+| tools/check_pyrf24_api.py   | Hardware diagnostic tool                               |
+
+TEST SUITE (8 modules)
+======================
+- test_spectrum_data.py     - ChannelObservation, SpectrumData, configs
+- test_sim_radio.py         - SimRadio, ChannelModel, reproducibility
+- test_hardware_radio.py    - Mocked pyrf24 tests
+- test_scanner.py           - ScannerThread lifecycle, callbacks, concurrency
+- test_mitigation.py        - Alert generation, cooldown, hysteresis
+- test_cli_scan.py          - Display rendering, exports, arg parsing
+- test_gui.py               - Mocked GUI components, headless import
+- test_concurrency.py       - Thread safety, lock contention, callbacks
+
+KEY FEATURES IMPLEMENTED
+========================
+- 126-channel scanning (0-125) with frequency calculation: 2400 + channel
+- Activity percentage: (RPD_positive / valid_samples) * 100
+- Unicode terminal bars with Clear/Moderate/Busy/Heavy Load status
+- Wi-Fi reference overlays at channels 12/37/62 (2412/2437/2462 MHz)
+- ARMED/DISARMED mitigation - passive only, no interference
+- CSV/JSON/PNG exports with all channels including clear ones
+- Thread-safe SpectrumData with rolling history & waterfall
+- Deterministic simulation with seed for reproducible tests
+
+VALIDATION ON RASPBERRY PI
+==========================
+# 1. Install dependencies
+sudo apt install python3-spidev python3-dev python3-venv
+python3 -m venv venv && source venv/bin/activate
+pip install pyrf24 -r requirements.txt
+
+# 2. Run Pass 1 - Functional Correctness
+pytest tests/ -v
+python cli_scan.py --backend sim --format table
+python cli_scan.py --backend sim --format json
+python tools/check_pyrf24_api.py --init
+
+# 3. Run Pass 2 - Reliability
+pytest tests/ -v --tb=short
+# Stress tests, concurrent access, resource cleanup verification
+
+HARDWARE WIRING (Required for Hardware Mode)
+=============================================
+| nRF24L01+ | Raspberry Pi          |
+|-----------|-----------------------|
+| VCC       | 3.3V (Pin 1)          |
+| GND       | GND (Pin 6)           |
+| CE        | GPIO25 (Pin 22)       |
+| CSN       | GPIO8/CE0 (Pin 24)    |
+| SCK       | GPIO11 (Pin 23)       |
+| MOSI      | GPIO10 (Pin 19)       |
+| MISO      | GPIO9 (Pin 21)        |
+| IRQ       | Not connected         |
+
+NOTE: Use 3.3V power only. Enable SPI via raspi-config.
+
+CLI USAGE EXAMPLES
+==================
+python cli_scan.py --backend sim
+python cli_scan.py --backend hardware
+python cli_scan.py --backend sim --duration 30
+python cli_scan.py --backend sim --format json
+python cli_scan.py --backend sim --mitigate --threshold 60
+python cli_scan.py --backend sim --start-channel 0 --end-channel 125
+python cli_scan.py --diagnostic
+
+GUI USAGE
+=========
+python app.py          # Simulation mode
+python app.py --hardware  # Hardware mode (if supported)
+
+CONFIGURATION
+=============
+All settings in config.py via AppConfig dataclass:
+- ChannelConfig: start_channel, end_channel (default 0-125)
+- ScanConfig: measurement_window, sampling_interval, min_valid_samples
+- ThresholdConfig: clear_max, moderate_max, busy_max, heavy_min
+- MitigationConfig: persistent_threshold, persistence_duration, armed
+- StorageConfig: rolling_history_size, waterfall_history_size
+- GUIConfig: refresh_interval_ms, spectrum_max_channels
+
+LOGGING
+=======
+Countermeasures events logged to logs/countermeasures.jsonl (JSON Lines)
+Includes: timestamp, event_id, channel, frequency, activity%, samples, threshold, classification, recommendations
+
+EXPORTS
+=======
+- CSV: All channels with raw counts and calculated percentages
+- JSON: Structured with config, scan_count, observations array
+- PNG: Current spectrum or waterfall via file dialog
+
+LIMITATIONS (Documented)
+========================
+- nRF24L01+ is narrowband transceiver, not calibrated spectrum analyzer
+- RPD is binary (energy detected/not detected), no dBm calibration
+- Cannot identify Wi-Fi/Bluetooth/Zigbee protocols
+- Scans channels sequentially (single frequency at a time)
+- Results depend on antenna type and placement
+
+LICENSE: MIT
+DISCLAIMER: Educational/diagnostic use only. Not for regulatory compliance.
