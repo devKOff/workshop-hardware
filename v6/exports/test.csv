@@ -1,0 +1,4 @@
+channel,frequency_mhz,activity_percentage,status,data_sufficient,valid_samples,rpd_positive,rpd_negative,eligible,eligibility_reason,blocked,blocked_at,block_reason,measurement_window,sampling_interval,backend,timestamp
+0,2400,10.0,Clear,True,100,10,90,True,eligible,False,,,1.0,0.01,sim,1970-01-01T00:16:40+00:00
+1,2401,10.0,Clear,True,100,10,90,True,eligible,False,,,1.0,0.01,sim,1970-01-01T00:16:40+00:00
+2,2402,10.0,Clear,True,100,10,90,True,eligible,False,,,1.0,0.01,sim,1970-01-01T00:16:40+00:00

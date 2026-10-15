@@ -1,0 +1,115 @@
+{
+  "metadata": {
+    "generated_at": "2026-10-15T15:33:02.677970+00:00",
+    "backend": "unknown",
+    "scan_count": 0,
+    "channel_range": [
+      0,
+      2
+    ],
+    "measurement_window": 0.1,
+    "sampling_interval": 0.01,
+    "thresholds": {
+      "clear_max": 24,
+      "moderate_max": 49,
+      "busy_max": 74,
+      "heavy_min": 75
+    },
+    "persistent_threshold": 75.0,
+    "hysteresis": 5.0
+  },
+  "blocklist": {
+    "blocked_channels": [],
+    "count": 0,
+    "entries": []
+  },
+  "channel_assessments": [
+    {
+      "channel": 0,
+      "frequency_mhz": 2400,
+      "eligible": true,
+      "reason": "eligible",
+      "activity_percentage": 10.0,
+      "status": "Clear",
+      "data_sufficient": true,
+      "blocked": false
+    },
+    {
+      "channel": 1,
+      "frequency_mhz": 2401,
+      "eligible": true,
+      "reason": "eligible",
+      "activity_percentage": 10.0,
+      "status": "Clear",
+      "data_sufficient": true,
+      "blocked": false
+    },
+    {
+      "channel": 2,
+      "frequency_mhz": 2402,
+      "eligible": true,
+      "reason": "eligible",
+      "activity_percentage": 10.0,
+      "status": "Clear",
+      "data_sufficient": true,
+      "blocked": false
+    }
+  ],
+  "recommendations": [
+    {
+      "channel": 0,
+      "frequency_mhz": 2400,
+      "eligible": true,
+      "reason": "eligible",
+      "activity_percentage": 10.0,
+      "status": "Clear",
+      "data_sufficient": true,
+      "blocked": false
+    },
+    {
+      "channel": 1,
+      "frequency_mhz": 2401,
+      "eligible": true,
+      "reason": "eligible",
+      "activity_percentage": 10.0,
+      "status": "Clear",
+      "data_sufficient": true,
+      "blocked": false
+    },
+    {
+      "channel": 2,
+      "frequency_mhz": 2402,
+      "eligible": true,
+      "reason": "eligible",
+      "activity_percentage": 10.0,
+      "status": "Clear",
+      "data_sufficient": true,
+      "blocked": false
+    }
+  ],
+  "summary": {
+    "total_channels": 3,
+    "eligible_channels": 3,
+    "blocked_channels": 0,
+    "insufficient_data": 0,
+    "sensor_errors": 0,
+    "high_activity": 0,
+    "activity_stats": {
+      "min": 10.0,
+      "max": 10.0,
+      "avg": 10.0,
+      "median": 10.0
+    },
+    "top_recommendation": {
+      "channel": 0,
+      "frequency_mhz": 2400,
+      "eligible": true,
+      "reason": "eligible",
+      "activity_percentage": 10.0,
+      "status": "Clear",
+      "data_sufficient": true,
+      "blocked": false
+    },
+    "recommendation_count": 3
+  }
+}

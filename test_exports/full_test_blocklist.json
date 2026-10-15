@@ -1,0 +1,10 @@
+{
+  "blocklist": [
+    {
+      "channel": 3,
+      "frequency_mhz": 2403,
+      "blocked_at": "2026-10-15T15:33:02.469113+00:00",
+      "reason": "Test block"
+    }
+  ]
+}

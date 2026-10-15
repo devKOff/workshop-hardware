@@ -1,0 +1,19 @@
+# RF Spectrum Visualizer v6 Requirements
+
+# Core dependencies
+numpy>=1.21.0
+matplotlib>=3.5.0
+
+# Hardware backend (Raspberry Pi only)
+# pyrf24 - install from https://github.com/nRF24/pyRF24 or pip install pyrf24
+# spidev - install via: pip install spidev
+
+# Testing
+pytest>=7.0.0
+pytest-mock>=3.10.0
+
+# Platform-specific notes:
+# Raspberry Pi OS: sudo apt install python3-spidev python3-dev
+# Then: pip install pyrf24
+# Linux desktop: pip install spidev (for simulation, pyrf24 not needed)
+# Windows: Simulation only, no hardware dependencies

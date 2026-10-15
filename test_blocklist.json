@@ -1,0 +1,8 @@
+[
+  {
+    "channel": 3,
+    "frequency_mhz": 2403,
+    "blocked_at": "2026-10-15T15:33:02.536445+00:00",
+    "reason": "Test block"
+  }
+]

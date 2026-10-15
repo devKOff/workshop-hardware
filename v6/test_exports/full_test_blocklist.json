@@ -1,0 +1,1 @@
+"{\n  \"blocklist\": [\n    {\n      \"channel\": 3,\n      \"frequency_mhz\": 2403,\n      \"blocked_at\": \"2026-10-15T15:03:23.100270+00:00\",\n      \"reason\": \"Test block\"\n    }\n  ]\n}"

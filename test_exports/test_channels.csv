@@ -1,0 +1,7 @@
+channel,frequency_mhz,activity_percentage,status,data_sufficient,valid_samples,rpd_positive,rpd_negative,eligible,eligibility_reason,blocked,blocked_at,block_reason,measurement_window,sampling_interval,backend,timestamp
+0,2400,0.0,Clear,True,100,0,100,True,eligible,False,,,1.0,0.01,sim,1970-01-01T00:16:40+00:00
+1,2401,10.0,Clear,True,100,10,90,True,eligible,False,,,1.0,0.01,sim,1970-01-01T00:16:41+00:00
+2,2402,20.0,Moderate,True,100,20,80,True,eligible,False,,,1.0,0.01,sim,1970-01-01T00:16:42+00:00
+3,2403,30.0,Moderate,True,100,30,70,False,blocked,True,2026-10-15T15:33:02.389137+00:00,Test block,1.0,0.01,sim,1970-01-01T00:16:43+00:00
+4,2404,,UNKNOWN,False,0,0,0,False,insufficient_data,False,,,1.0,0.01,sim,
+5,2405,,UNKNOWN,False,0,0,0,False,insufficient_data,False,,,1.0,0.01,sim,
