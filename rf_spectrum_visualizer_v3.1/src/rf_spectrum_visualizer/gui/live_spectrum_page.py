@@ -72,8 +72,10 @@ class LiveSpectrumPage(tk.Frame):
         self.mode_combo = ttk.Combobox(
             tb, textvariable=self.backend_var,
             values=["sim", "hardware"], width=10, state="readonly",
+            takefocus=1,
         )
         self.mode_combo.pack(side=tk.LEFT, padx=(0, 8))
+        self.mode_combo.focus_set()
         self.mode_combo.bind("<<ComboboxSelected>>", self._on_mode_change)
 
         ttk.Separator(tb, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
