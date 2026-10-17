@@ -41,6 +41,7 @@ from rf_spectrum_visualizer.gui.theme import (
     TEXT,
     THRESHOLD_BUSY,
     THRESHOLD_HEAVY,
+    WATERFALL_CMAP,
     YScaleManager,
     activity_color,
     channel_status,
@@ -54,6 +55,7 @@ from rf_spectrum_visualizer.scan_worker import (
     ScanComplete,
     ScanError,
     ScanPass,
+    ScanState,
     ScanWorker,
 )
 
@@ -72,7 +74,6 @@ WATERFALL_MAX_ROWS = 120   # number of scan cycles to keep in the heatmap
 WATERFALL_COLS = 126       # channels 0-125
 
 # GUI update rate limits
-MAX_CHART_HZ = 10.0        # max chart redraws per second
 MAX_TABLE_HZ = 4.0         # max table row updates per second
 
 
@@ -87,7 +88,7 @@ class LiveSpectrumPage(ttk.Frame):
 
         self.worker: Optional[ScanWorker] = None
         self._channel_stats: dict[int, ChannelStats] = {}
-        self._scanning = False
+        self._scanning = ScanState()
         self._after_id: Optional[str] = None
 
         # Waterfall buffer: fixed numpy array, rows = scan cycles.
@@ -112,9 +113,9 @@ class LiveSpectrumPage(ttk.Frame):
         self._wifi_spans: list = []
 
         # Rate limiting for redraws.
-        self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
         self._pending_stats: dict[int, ChannelStats] = {}
+        self._stop_poll_count = 0
 
         self._build_ui()
         self._poll_queue()
@@ -397,7 +398,11 @@ class LiveSpectrumPage(ttk.Frame):
 
     # ------------------------------------------------------------------ scan control
     def _start_scan(self) -> None:
-        if self._scanning:
+        if not self._scanning.start_enabled:
+            return
+        if self.worker is not None and self.worker.running:
+            # Old worker thread still alive - do not start a new one
+            self._log("Scan already running - ignoring start request")
             return
         try:
             ch_from = int(self.ch_from.get())
@@ -421,7 +426,7 @@ class LiveSpectrumPage(ttk.Frame):
                 self._log(f"Hardware unavailable, falling back to sim: {exc}")
                 backend = None
                 self.data_source_var.set(
-                    "Data Source: Simulation (hardware unavailable)"
+                    "Data Source: Simulation (hardware fallback)"
                 )
         if backend is None:
             backend = SimBackend()
@@ -448,7 +453,6 @@ class LiveSpectrumPage(ttk.Frame):
         self._peak_hold.clear()
         self._peak_hold_scatter = None
         self._waterfall_colorbar = None
-        self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
 
         for item in self.tree.get_children():
@@ -471,13 +475,14 @@ class LiveSpectrumPage(ttk.Frame):
             self.im = None
             self.canvas.draw()
 
-        self._scanning = True
+        self._scanning.start()
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self.clear_btn.config(state=tk.NORMAL)
         self._y_scale.set_mode("fixed" if self.y_scale_var.get() == "Fixed 0-100" else "auto")
+        self._log("Scan started")
         self._log(
-            f"Start Scan: channels {ch_from}-{ch_to} ({mode}) "
+            f"Scan: channels {ch_from}-{ch_to} ({mode}) "
             f"window={window_seconds}s interval={interval_ms}ms"
         )
 
@@ -487,12 +492,42 @@ class LiveSpectrumPage(ttk.Frame):
             window_seconds=window_seconds,
             interval_ms=interval_ms,
         )
+        self._scanning.started()
 
     def _stop_scan(self) -> None:
-        if not self._scanning or self.worker is None:
+        if not self._scanning.stop_enabled:
+            return
+        if self.worker is None:
             return
         self.worker.stop()
-        self._log("Stop Scan requested")
+        self._scanning.stop()
+        self.start_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.DISABLED)
+        self._log("Scan stopping")
+        self._stop_poll_count = 0
+        self._poll_for_stop()
+
+    def _poll_for_stop(self) -> None:
+        """Poll until the worker thread has fully exited, then return to idle."""
+        if self.worker is not None and self.worker.running:
+            self._stop_poll_count += 1
+            if self._stop_poll_count > 20:  # ~2 second timeout
+                self._scanning.stopped()
+                self.start_btn.config(state=tk.NORMAL)
+                self.stop_btn.config(state=tk.DISABLED)
+                self.worker = None
+                self.scan_rate_var.set("Scan rate: -- ch/s")
+                self._log("Scan stop timeout - worker thread did not exit; recovered to idle")
+                return
+            self._after_id = self.after(100, self._poll_for_stop)
+            return
+        # Worker thread has exited
+        self._scanning.stopped()
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
+        self.worker = None
+        self.scan_rate_var.set("Scan rate: -- ch/s")
+        self._log("Scan stopped")
 
     def _clear_display(self) -> None:
         """Clear the live display (table, chart, waterfall) without stopping the scan."""
@@ -559,9 +594,14 @@ class LiveSpectrumPage(ttk.Frame):
                 latest_pass = msg  # keep only the newest
             elif isinstance(msg, ScanError):
                 self._log(f"Error: {msg.message}")
+                self._scanning.error()
+                self.start_btn.config(state=tk.NORMAL)
+                self.stop_btn.config(state=tk.DISABLED)
+                self.scan_rate_var.set("Scan rate: -- ch/s")
+                self.worker = None
             elif isinstance(msg, ScanComplete):
                 self._log("Scan complete")
-                self._scanning = False
+                self._scanning.complete()
                 self.start_btn.config(state=tk.NORMAL)
                 self.stop_btn.config(state=tk.DISABLED)
                 self.scan_rate_var.set("Scan rate: -- ch/s")
@@ -570,14 +610,14 @@ class LiveSpectrumPage(ttk.Frame):
         if latest_pass is not None:
             self._handle_scan_pass(latest_pass)
 
-        if not self.worker.running and not drained and latest_pass is None:
+        if self.worker is not None and not self.worker.running and not drained and latest_pass is None:
             # Worker finished and queue empty
-            if self._scanning:
-                self._scanning = False
+            if self._scanning.scanning:
+                self._scanning.complete()
                 self.start_btn.config(state=tk.NORMAL)
                 self.stop_btn.config(state=tk.DISABLED)
                 self.scan_rate_var.set("Scan rate: -- ch/s")
-                self.worker = None
+            self.worker = None
         else:
             self._after_id = self.after(100, self._poll_queue)
 
@@ -602,25 +642,25 @@ class LiveSpectrumPage(ttk.Frame):
             else f"Pass {msg.pass_number}: {msg.pass_time_seconds*1000:.0f} ms"
         )
 
-        # Throttled refreshes.
-        now = time.perf_counter()
-        chart_interval = 1.0 / MAX_CHART_HZ
-        table_interval = 1.0 / MAX_TABLE_HZ
+        # Always refresh chart and table on new data.
+        # Chart: update bar heights in place (no ax.clear) for speed.
+        # Table: update rows in place at a reasonable rate.
+        self._refresh_chart()
 
-        redraw_start = time.perf_counter()
-        if now - self._last_chart_redraw >= chart_interval:
-            self._refresh_chart()
-            self._last_chart_redraw = now
+        now = time.perf_counter()
+        table_interval = 1.0 / MAX_TABLE_HZ
         if now - self._last_table_redraw >= table_interval:
             self._refresh_table()
             self._last_table_redraw = now
-        redraw_elapsed = time.perf_counter() - redraw_start
-        if redraw_elapsed > 0.01:
-            self._log(f"Redraw: {redraw_elapsed*1000:.0f} ms")
 
     # ------------------------------------------------------------------ waterfall
     def _add_waterfall_row(self, channel_stats: dict[int, ChannelStats]) -> None:
-        """Write one pass into the fixed numpy waterfall array."""
+        """Write one pass into the fixed numpy waterfall array.
+
+        New pass is written to row 0 (top). Existing rows are shifted down
+        by one so the newest scan cycle is always at the top, matching the
+        "newest at top" label with origin="upper".
+        """
         if not HAS_MATPLOTLIB or np is None:
             return
         row = [0.0] * WATERFALL_COLS
@@ -631,7 +671,9 @@ class LiveSpectrumPage(ttk.Frame):
             self._waterfall_data = np.zeros(
                 (WATERFALL_MAX_ROWS, WATERFALL_COLS), dtype=np.float32
             )
-        self._waterfall_data[self._waterfill_row % WATERFALL_MAX_ROWS, :] = row
+        # Shift all existing rows down by 1, write new pass at row 0 (top)
+        self._waterfall_data[1:, :] = self._waterfall_data[:-1, :]
+        self._waterfall_data[0, :] = row
         self._waterfill_row += 1
 
     # ------------------------------------------------------------------ table (in-place updates)
@@ -783,14 +825,23 @@ class LiveSpectrumPage(ttk.Frame):
             chans = sorted(self._channel_stats)
             values = [self._channel_stats[c].activity_percent for c in chans]
             colors = [activity_color(v) for v in values]
-            self._bar_rects = self.ax_bar.bar(
-                chans, values, color=colors, width=1.0, edgecolor="none"
-            )
-            self._setup_xticks(self.ax_bar)
-            self._apply_y_scale(self.ax_bar, values)
-            self._draw_peak_hold(chans, values)
-            if self._wifi_overlay:
-                self._draw_wifi_bands(self.ax_bar)
+            if not chans:
+                # No data yet - keep bar_rects None so the next pass with
+                # data goes through the first-draw path.
+                self._bar_rects = None
+                self._setup_xticks(self.ax_bar)
+                self._apply_y_scale(self.ax_bar, values)
+                if self._wifi_overlay:
+                    self._draw_wifi_bands(self.ax_bar)
+            else:
+                self._bar_rects = self.ax_bar.bar(
+                    chans, values, color=colors, width=1.0, edgecolor="none"
+                )
+                self._setup_xticks(self.ax_bar)
+                self._apply_y_scale(self.ax_bar, values)
+                self._draw_peak_hold(chans, values)
+                if self._wifi_overlay:
+                    self._draw_wifi_bands(self.ax_bar)
         else:
             # In-place update: change bar heights and colors only.
             chans = sorted(self._channel_stats)
@@ -824,7 +875,7 @@ class LiveSpectrumPage(ttk.Frame):
                     self._waterfall_data[:rows_to_show, :],
                     aspect="auto",
                     interpolation="nearest",
-                    cmap="RdYlGn_r",
+                    cmap=WATERFALL_CMAP,
                     vmin=0,
                     vmax=wf_vmax,
                     origin="upper",

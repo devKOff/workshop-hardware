@@ -49,6 +49,20 @@ class MainWindow:
         self._build_layout()
         self._show_page("Live Spectrum")
 
+        # Handle window close: stop scan, release radio, then destroy window
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self) -> None:
+        """Handle window close: stop any running scan, release radio, destroy window."""
+        # Find the Live Spectrum page and stop any running scan
+        live_page = self._page_frames.get("Live Spectrum")
+        if live_page is not None and live_page.worker is not None:
+            live_page.worker.stop()
+            # Wait briefly for the worker thread to exit
+            if live_page.worker.running:
+                live_page.worker._thread.join(timeout=2.0) if live_page.worker._thread is not None else None
+        self.root.destroy()
+
     # ------------------------------------------------------------------ layout
     def _build_layout(self) -> None:
         # Sidebar
