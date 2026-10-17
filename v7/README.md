@@ -59,7 +59,9 @@ sudo usermod -a -G spi $USER
 
 ```bash
 # From the project root
-python -m rf_spectrum_visualizer   # placeholder until Phase 3 GUI
+source .venv/bin/activate          # if using a venv
+export PYTHONPATH="src"
+python scripts/run_gui.py          # Phase 6: launch the GUI
 python scripts/check_radio.py      # Phase 1: verify the radio
 python scripts/check_rpd.py        # Phase 1: RPD activity on sample channels
 ```
@@ -73,12 +75,20 @@ pytest
 
 ## Roadmap (phases)
 
-1. Scaffold + hardware check scripts (check_radio.py, check_rpd.py)
-2. Scan backend (SimBackend / HardwareBackend, per-channel stats)
-3. GUI shell + Live Spectrum page
-4. Start Analysis page + CSV export
-5. Blocker page + JSON persistence
-6. Waterfall, scan-rate readout, Clear button, docs, launch script/desktop shortcut
+1. Scaffold + hardware check scripts (check_radio.py, check_rpd.py) — DONE
+2. Scan backend (SimBackend / HardwareBackend, per-channel stats) — DONE
+3. GUI shell + Live Spectrum page — DONE
+4. Start Analysis page + CSV export — DONE
+5. Blocker page + JSON persistence — DONE
+6. Waterfall, scan-rate readout, Clear button, docs, launch script/desktop shortcut — DONE
+
+## Launch script & desktop shortcut
+
+* `scripts/run_gui.py` — launches the GUI with optional file logging
+  (`rf_spectrum_visualizer.log`).
+* `scripts/rf_spectrum_visualizer.desktop` — desktop shortcut; copy to
+  `~/.local/share/applications/` or `~/.config/autostart/` for autostart.
+* See `docs/phase6.md` for full launch/autostart/logging instructions.
 
 ## Limitations
 

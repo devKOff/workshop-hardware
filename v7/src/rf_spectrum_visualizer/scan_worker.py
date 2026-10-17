@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -68,10 +69,24 @@ class ScanWorker:
         self._stop = threading.Event()
         self._channels: list[int] = []
         self._samples: int = 100
+        self._scan_start_time: Optional[float] = None
+        self._channels_scanned: int = 0
+        self._lock = threading.Lock()
 
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def scan_rate(self) -> float:
+        """Channels scanned per second (0.0 if not running or just started)."""
+        with self._lock:
+            if self._scan_start_time is None or self._channels_scanned == 0:
+                return 0.0
+            elapsed = time.perf_counter() - self._scan_start_time
+            if elapsed <= 0:
+                return 0.0
+            return self._channels_scanned / elapsed
 
     def start(
         self,
@@ -90,6 +105,9 @@ class ScanWorker:
         self._channels = list(channels)
         self._samples = samples
         self._stop.clear()
+        with self._lock:
+            self._scan_start_time = time.perf_counter()
+            self._channels_scanned = 0
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -118,6 +136,8 @@ class ScanWorker:
                         ScanError(message=f"Channel {ch}: {exc}")
                     )
                     continue
+                with self._lock:
+                    self._channels_scanned += 1
                 self.result_queue.put(ScanResult(stats=stats))
             if not self._stop.is_set():
                 self.result_queue.put(ScanComplete())
