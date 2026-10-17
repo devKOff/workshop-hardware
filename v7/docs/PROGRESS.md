@@ -1,6 +1,6 @@
 # Progress - rf_spectrum_visualizer v3.1
 
-Phase status: **in progress** (Phase 6 - final).
+Phase status: **in progress** (Phase 7 - Performance + Correctness).
 
 ## Phase 1 - Scaffold + hardware check scripts (APPROVED)
 
@@ -22,27 +22,32 @@ Tag `v3.1-phase4` pushed.
 
 Tag `v3.1-phase5` pushed.
 
-## Phase 6 - Waterfall, scan-rate readout, Clear button, docs, launch script/desktop shortcut (in progress)
+## Phase 6 - Waterfall, scan-rate readout, Clear button, docs, launch script/desktop shortcut (APPROVED)
 
-New files:
-- `scripts/run_gui.py` — launch script with optional file logging
-- `scripts/rf_spectrum_visualizer.desktop` — desktop shortcut / autostart entry
-- `docs/phase6.md` — launch, autostart, logging, GUI feature docs
+Tag `v3.1-phase6` pushed.
+
+## Phase 7 - Performance + Correctness (in progress)
+
+New files: none.
 
 Changed files:
-- `src/rf_spectrum_visualizer/scan_worker.py` — added scan-rate tracking (`scan_rate` property)
-- `src/rf_spectrum_visualizer/gui/pages/live_spectrum.py` — added Clear Display button,
-  scan-rate readout, waterfall heatmap (matplotlib imshow, newest cycle at top)
-- `README.md` — updated Run section, roadmap marked complete, launch script/desktop shortcut
-- `docs/PROGRESS.md` — updated
+- `src/rf_spectrum_visualizer/scan_worker.py` — PASS-based continuous scanning
+  (1-3 samples per channel per pass, repeated until Stop). Rolling window per
+  channel (length from Window setting) for Activity %. Publishes ScanPass per
+  pass with pass timing. scan_rate reports real ch/s.
+- `src/rf_spectrum_visualizer/gui/pages/live_spectrum.py` — Handles ScanPass
+  (drops older passes, renders newest only). Bar heights updated in place
+  (no ax.clear). draw_idle with max 10 Hz chart redraw, 4 Hz table redraw.
+  Table rows updated in place, only changed rows. Waterfall uses fixed numpy
+  array with set_data. Profiling log: pass time and redraw time.
+- `tests/test_phase3.py` — Updated for start(samples_per_pass=...) API and ScanPass.
+- `docs/PROGRESS.md` — updated.
 
-Dev-machine pytest: 56 passed (unchanged from Phase 5; no new test file needed
-for Phase 6 GUI features since they require a display).
-Could NOT verify without hardware: HardwareBackend end-to-end in GUI, Tkinter
-on Pi OS, matplotlib on Pi OS, waterfall rendering on Pi, desktop shortcut,
-autostart.
+Dev-machine pytest: 57 passed.
+Could NOT verify without hardware: HardwareBackend end-to-end in GUI on Pi,
+Tkinter on Pi OS, waterfall rendering on Pi, desktop shortcut, autostart.
 
 Open issues:
 - Tkinter on Raspberry Pi OS not yet verified (no display on dev machine).
 - Matplotlib on Pi OS: user reported installing it; not yet verified with GUI.
-- Waterfall requires matplotlib `imshow` — verified to import on dev machine.
+- Hardware config unchanged: auto-ack off, CRC off, 1 Mbps.
