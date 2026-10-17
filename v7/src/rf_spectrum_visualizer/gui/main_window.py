@@ -20,6 +20,7 @@ from rf_spectrum_visualizer.gui.theme import (
     TEXT,
     WINDOW_TITLE,
 )
+from rf_spectrum_visualizer.blocker import BlockerManager
 from rf_spectrum_visualizer.gui.pages.blocker import BlockerPage
 from rf_spectrum_visualizer.gui.pages.live_spectrum import LiveSpectrumPage
 from rf_spectrum_visualizer.gui.pages.start_analysis import StartAnalysisPage
@@ -36,6 +37,9 @@ class MainWindow:
 
         self._current_page_name = "Live Spectrum"
         self._status_var = tk.StringVar(value="Stopped")
+
+        # Shared blocker manager (JSON persistence) passed to pages that need it.
+        self.blocker_manager = BlockerManager()
 
         self._build_layout()
         self._show_page("Live Spectrum")
@@ -132,9 +136,9 @@ class MainWindow:
             if page_name == "Live Spectrum":
                 frame = LiveSpectrumPage(self.content)
             elif page_name == "Start Analysis":
-                frame = StartAnalysisPage(self.content)
+                frame = StartAnalysisPage(self.content, blocker_manager=self.blocker_manager)
             elif page_name == "Blocker":
-                frame = BlockerPage(self.content)
+                frame = BlockerPage(self.content, blocker_manager=self.blocker_manager)
             else:
                 frame = ttk.Frame(self.content)
             self._page_frames[page_name] = frame
