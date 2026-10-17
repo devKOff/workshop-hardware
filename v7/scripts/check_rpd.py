@@ -57,17 +57,27 @@ def configure_for_scan(radio) -> None:
       * address width 5    - default; irrelevant to RPD
       * payload size 1     - minimum; irrelevant to RPD
       * stopListening()    - start in idle, we call startListening per sample
+
+    Note: pyrf24 0.6.0 expects the CRC / data-rate enums (module-level,
+    e.g. pyrf24.RF24_CRC_DISABLED), not bare ints. Passing 0 raises
+    TypeError: setCRCLength() incompatible function arguments.
     """
+    import pyrf24  # module-level enums; safe - pyrf24 never imported at package import time
     radio.setAutoAck(False)
-    if hasattr(radio, "setCRCLength"):
-        crc_disabled = getattr(radio, "RF24_CRC_DISABLED", None)
-        radio.setCRCLength(crc_disabled if crc_disabled is not None else 0)
-    elif hasattr(radio, "set_crc_length"):
-        radio.set_crc_length(0)
-    if hasattr(radio, "set_data_rate"):
-        radio.set_data_rate(getattr(radio, "RF24_1MBPS", 0))
-    else:
-        radio.setDataRate(getattr(radio, "RF24_1MBPS", 0))
+
+    crc_disabled = getattr(pyrf24, "RF24_CRC_DISABLED", None)
+    if hasattr(radio, "setCRCLength") and crc_disabled is not None:
+        radio.setCRCLength(crc_disabled)
+    elif hasattr(radio, "set_crc_length") and crc_disabled is not None:
+        radio.set_crc_length(crc_disabled)
+
+    rate = getattr(pyrf24, "RF24_1MBPS", None)
+    if rate is not None:
+        if hasattr(radio, "set_data_rate"):
+            radio.set_data_rate(rate)
+        else:
+            radio.setDataRate(rate)
+
     if hasattr(radio, "set_address_width"):
         radio.set_address_width(5)
     else:
