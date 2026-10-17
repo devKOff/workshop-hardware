@@ -239,3 +239,33 @@ def test_run_quick_analysis_hardware_uses_hardware_backend():
         result = run_quick_analysis(cycles=1, samples_per_channel=10, use_hardware=True)
         assert isinstance(result, AnalysisResult)
         assert result.channels_analyzed == 126
+
+
+def test_analysis_engine_uses_hardware_backend_when_mode_hardware():
+    """AnalysisEngine must use the passed hardware backend, not silently fall back to SimBackend."""
+    from rf_spectrum_visualizer import scan_backend as sb
+
+    captured_backend = None
+
+    class CapturingHardwareBackend(sb.HardwareBackend):
+        def open(self) -> None:
+            nonlocal captured_backend
+            captured_backend = self
+            super().open()
+
+    with patch.object(sb.HardwareBackend, "open", return_value=None), patch.object(
+        sb.HardwareBackend, "close", return_value=None
+    ), patch.object(
+        sb.HardwareBackend,
+        "scan_channel",
+        return_value=ChannelStats.from_counts(channel=100, samples=10, rpd_true=0),
+    ):
+        # Patch SimBackend to raise if accidentally used
+        with patch.object(
+            sb.SimBackend, "scan_channel", side_effect=RuntimeError("SimBackend must not be used in hardware mode")
+        ):
+            engine = AnalysisEngine(backend=sb.HardwareBackend())
+            result = engine.run(cycles=1, samples_per_channel=10)
+
+    assert isinstance(result, AnalysisResult)
+    assert result.channels_analyzed == 126

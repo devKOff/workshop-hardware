@@ -24,6 +24,7 @@ from rf_spectrum_visualizer.blocker import BlockerManager
 from rf_spectrum_visualizer.gui.pages.blocker import BlockerPage
 from rf_spectrum_visualizer.gui.pages.live_spectrum import LiveSpectrumPage
 from rf_spectrum_visualizer.gui.pages.start_analysis import StartAnalysisPage
+from rf_spectrum_visualizer.scan_backend import HardwareBackend, SimBackend
 
 
 class MainWindow:
@@ -37,6 +38,10 @@ class MainWindow:
 
         self._current_page_name = "Live Spectrum"
         self._status_var = tk.StringVar(value="Stopped")
+
+        # Shared mode (sim/hardware) across pages; Live Spectrum owns the
+        # dropdown, Start Analysis reads it to choose its backend.
+        self.mode_var = tk.StringVar(value="sim")
 
         # Shared blocker manager (JSON persistence) passed to pages that need it.
         self.blocker_manager = BlockerManager()
@@ -134,9 +139,13 @@ class MainWindow:
 
         if page_name not in self._page_frames:
             if page_name == "Live Spectrum":
-                frame = LiveSpectrumPage(self.content)
+                frame = LiveSpectrumPage(self.content, mode_var=self.mode_var)
             elif page_name == "Start Analysis":
-                frame = StartAnalysisPage(self.content, blocker_manager=self.blocker_manager)
+                frame = StartAnalysisPage(
+                    self.content,
+                    blocker_manager=self.blocker_manager,
+                    mode=self.mode_var.get(),
+                )
             elif page_name == "Blocker":
                 frame = BlockerPage(self.content, blocker_manager=self.blocker_manager)
             else:

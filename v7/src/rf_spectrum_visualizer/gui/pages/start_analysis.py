@@ -32,12 +32,14 @@ from rf_spectrum_visualizer.gui.theme import (
     CARD,
     GREEN,
     MUTED,
+    NICE_SCALES,
     ORANGE,
     PINK,
     RED_ALERT,
     TEXT,
+    YScaleManager,
 )
-from rf_spectrum_visualizer.scan_backend import SimBackend
+from rf_spectrum_visualizer.scan_backend import HardwareBackend, ScanBackend, SimBackend
 
 try:
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -52,15 +54,21 @@ class StartAnalysisPage(ttk.Frame):
     """Start Analysis page."""
 
     def __init__(
-        self, parent: tk.Widget, blocker_manager: BlockerManager, **kwargs
+        self,
+        parent: tk.Widget,
+        blocker_manager: BlockerManager,
+        mode: str = "sim",
+        **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
         self.configure(style="Card.TFrame")
 
         self.blocker_manager = blocker_manager
+        self.mode = mode
         self.excluded_channels: set[int] = set(blocker_manager.excluded_channels)
         self.analysis_result = None
         self._after_id: Optional[str] = None
+        self._y_scale = YScaleManager()
 
         self._build_ui()
 
@@ -92,7 +100,33 @@ class StartAnalysisPage(ttk.Frame):
             font=("Segoe UI", 10, "bold"),
             command=self._start_analysis,
         )
-        self.start_btn.pack(side=tk.RIGHT)
+        self.start_btn.pack(side=tk.RIGHT, padx=(0, 16))
+
+        # Y scale control: Auto / Fixed 0-100
+        tk.Label(header, text="Y scale:", bg=BG, fg=TEXT).pack(side=tk.RIGHT)
+        self.y_scale_var = tk.StringVar(value="Auto")
+        self.y_scale_combo = ttk.Combobox(
+            header,
+            textvariable=self.y_scale_var,
+            values=["Auto", "Fixed 0-100"],
+            state="readonly",
+            width=10,
+        )
+        self.y_scale_combo.pack(side=tk.RIGHT, padx=(0, 4))
+        self.y_scale_combo.bind("<<ComboboxSelected>>", self._on_y_scale_change)
+
+        # Data Source label
+        self.data_source_var = tk.StringVar(
+            value=f"Data Source: {'Hardware' if self.mode == 'hardware' else 'Simulation'}"
+        )
+        self.data_source_label = tk.Label(
+            header,
+            textvariable=self.data_source_var,
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        )
+        self.data_source_label.pack(side=tk.RIGHT)
 
         # Status line
         self.status_var = tk.StringVar(value="Analysis not yet run")
@@ -232,6 +266,10 @@ class StartAnalysisPage(ttk.Frame):
         if self.analysis_result is not None:
             self._refresh_display()
 
+    def _on_y_scale_change(self, _event=None) -> None:
+        mode = "fixed" if self.y_scale_var.get() == "Fixed 0-100" else "auto"
+        self._y_scale.set_mode(mode)
+
     # ------------------------------------------------------------------ analysis
     def _start_analysis(self) -> None:
         if hasattr(self, "_analysis_running") and self._analysis_running:
@@ -241,7 +279,19 @@ class StartAnalysisPage(ttk.Frame):
         self.status_var.set("Analyzing all 126 channels (4 cycles)...")
         self.export_btn.config(state=tk.DISABLED)
 
-        engine = AnalysisEngine(backend=SimBackend())
+        backend: ScanBackend
+        if self.mode == "hardware":
+            try:
+                backend = HardwareBackend()
+            except Exception:
+                backend = SimBackend()
+                self.data_source_var.set(
+                    "Data Source: Simulation (hardware unavailable)"
+                )
+        else:
+            backend = SimBackend()
+
+        engine = AnalysisEngine(backend=backend)
         engine.set_excluded_channels(self.blocker_manager.excluded_channels)
 
         def _run():
@@ -255,6 +305,7 @@ class StartAnalysisPage(ttk.Frame):
         self._analysis_running = False
         self.start_btn.config(state=tk.NORMAL)
         self.export_btn.config(state=tk.NORMAL)
+        self._y_scale.set_mode("fixed" if self.y_scale_var.get() == "Fixed 0-100" else "auto")
 
         self.status_var.set(
             f"Analysis complete - {result.channels_analyzed} channel(s) analyzed, "
@@ -309,6 +360,11 @@ class StartAnalysisPage(ttk.Frame):
             for c in self.analysis_result.channels
         ]
         self.ax.bar(chans, values, color=colors, width=0.7)
+        self._setup_xticks(self.ax)
+        peak = max(values) if values else 0.0
+        y_max = self._y_scale.compute(peak)
+        self.ax.set_ylim(0, y_max)
+        self.ax.set_ylabel(self._y_scale.label())
         self.chart_canvas.draw()
 
     @staticmethod
@@ -318,6 +374,18 @@ class StartAnalysisPage(ttk.Frame):
         if activity >= 50.0:
             return ORANGE
         return GREEN
+
+    @staticmethod
+    def _setup_xticks(ax) -> None:
+        """Set x-axis ticks: major every 10 channels, minor every 5.
+
+        Prevents tick-label overlap when all 126 channels are shown.
+        """
+        major_ticks = list(range(0, 126, 10))
+        minor_ticks = list(range(0, 126, 5))
+        ax.set_xticks(major_ticks)
+        ax.set_xticks(minor_ticks, minor=True)
+        ax.set_xticklabels([str(t) for t in major_ticks])
 
     # ------------------------------------------------------------------ export
     def _export_csv(self) -> None:

@@ -22,11 +22,11 @@ from rf_spectrum_visualizer.scan_backend import ChannelStats, SimBackend
 from rf_spectrum_visualizer.scan_worker import (
     ScanComplete,
     ScanError,
+    ScanPass,
     ScanProgress,
     ScanResult,
     ScanWorker,
 )
-
 
 # ------------------------------------------------------------------ theme
 def test_theme_thresholds():
@@ -53,44 +53,48 @@ def test_row_tint_bands():
 
 # ------------------------------------------------------------------ scan worker
 def test_scan_worker_sim_runs_and_completes():
-    """ScanWorker with SimBackend should produce results and a ScanComplete."""
+    """ScanWorker with SimBackend should produce ScanPass results and stop."""
     worker = ScanWorker(backend=SimBackend(seed=7))
-    worker.start([12, 37, 100], samples=50)
+    worker.start([12, 37, 100], samples_per_pass=50, interval_ms=10)
 
-    results = []
+    pass_results = []
     errors = []
     complete = False
-    # Drain queue until ScanComplete appears (worker is a daemon thread,
-    # so it finishes quickly on a dev machine).
-    while not complete or not worker.result_queue.empty():
+    # Drain queue until ScanComplete appears (worker runs continuous passes,
+    # so we stop it after collecting at least one pass).
+    import time as _time
+    _time.sleep(0.3)
+    worker.stop()
+    while worker.running:
+        _time.sleep(0.01)
+    while not worker.result_queue.empty():
         try:
             msg = worker.result_queue.get(timeout=1)
         except queue.Empty:
-            if not worker.running:
-                break
-            continue
-        if isinstance(msg, ScanResult):
-            results.append(msg.stats)
+            break
+        if isinstance(msg, ScanPass):
+            pass_results.append(msg.channel_stats)
         elif isinstance(msg, ScanError):
             errors.append(msg.message)
         elif isinstance(msg, ScanComplete):
             complete = True
 
     assert not errors, f"unexpected errors: {errors}"
-    assert complete
-    assert len(results) == 3
-    channels = sorted(s.channel for s in results)
+    assert len(pass_results) >= 1, "expected at least one ScanPass"
+    # First pass should have all 3 channels
+    first_pass = pass_results[0]
+    channels = sorted(first_pass.keys())
     assert channels == [12, 37, 100]
     # All activities should be in [0, 100]
-    for s in results:
-        assert 0.0 <= s.activity_percent <= 100.0
+    for stats in first_pass.values():
+        assert 0.0 <= stats.activity_percent <= 100.0
     assert worker.running is False
 
 
 def test_scan_worker_stop():
     """Calling stop() should end the worker early."""
     worker = ScanWorker(backend=SimBackend(seed=7))
-    worker.start(list(range(0, 126)), samples=50)
+    worker.start(list(range(0, 126)), samples_per_pass=50, interval_ms=10)
     worker.stop()
 
     # Wait for thread to finish
@@ -122,19 +126,95 @@ def test_scan_worker_hardware_falls_back_to_sim():
         worker = ScanWorker(backend=sb.HardwareBackend())
         # Manually swap to SimBackend to simulate the fallback logic
         worker.backend = SimBackend(seed=3)
-        worker.start([100], samples=25)
+        worker.start([100], samples_per_pass=25, interval_ms=10)
 
         complete = False
-        while not complete or not worker.result_queue.empty():
+        import time as _time
+        _time.sleep(0.3)
+        worker.stop()
+        # Wait for thread to finish
+        while worker.running:
+            _time.sleep(0.01)
+        while not worker.result_queue.empty():
             try:
                 msg = worker.result_queue.get(timeout=1)
             except queue.Empty:
                 if not worker.running:
                     break
                 continue
-            if isinstance(msg, ScanComplete):
+            if isinstance(msg, ScanPass):
                 complete = True
             elif isinstance(msg, ScanError):
                 pytest.fail(f"unexpected error: {msg.message}")
 
     assert complete
+
+
+# ------------------------------------------------------------------ xticks
+def test_setup_xticks_major_every_10_minor_every_5():
+    """_setup_xticks must set major ticks every 10, minor every 5."""
+    from rf_spectrum_visualizer.gui.pages.live_spectrum import LiveSpectrumPage
+    from rf_spectrum_visualizer.gui.pages.start_analysis import StartAnalysisPage
+
+    class FakeAx:
+        def __init__(self) -> None:
+            self.major = None
+            self.minor = None
+            self.labels = None
+
+        def set_xticks(self, ticks, minor=False):
+            if minor:
+                self.minor = list(ticks)
+            else:
+                self.major = list(ticks)
+
+        def set_xticklabels(self, labels):
+            self.labels = list(labels)
+
+    ax = FakeAx()
+    LiveSpectrumPage._setup_xticks(ax)
+    assert ax.major == list(range(0, 126, 10))
+    assert ax.minor == list(range(0, 126, 5))
+    assert ax.labels == [str(t) for t in range(0, 126, 10)]
+
+    ax2 = FakeAx()
+    StartAnalysisPage._setup_xticks(ax2)
+    assert ax2.major == list(range(0, 126, 10))
+    assert ax2.minor == list(range(0, 126, 5))
+    assert ax2.labels == [str(t) for t in range(0, 126, 10)]
+
+    assert complete
+
+
+
+def test_setup_xticks_major_every_10_minor_every_5():
+    """_setup_xticks must set major ticks every 10, minor every 5."""
+    from rf_spectrum_visualizer.gui.pages.live_spectrum import LiveSpectrumPage
+    from rf_spectrum_visualizer.gui.pages.start_analysis import StartAnalysisPage
+
+    class FakeAx:
+        def __init__(self) -> None:
+            self.major = None
+            self.minor = None
+            self.labels = None
+
+        def set_xticks(self, ticks, minor=False):
+            if minor:
+                self.minor = list(ticks)
+            else:
+                self.major = list(ticks)
+
+        def set_xticklabels(self, labels):
+            self.labels = list(labels)
+
+    ax = FakeAx()
+    LiveSpectrumPage._setup_xticks(ax)
+    assert ax.major == list(range(0, 126, 10))
+    assert ax.minor == list(range(0, 126, 5))
+    assert ax.labels == [str(t) for t in range(0, 126, 10)]
+
+    ax2 = FakeAx()
+    StartAnalysisPage._setup_xticks(ax2)
+    assert ax2.major == list(range(0, 126, 10))
+    assert ax2.minor == list(range(0, 126, 5))
+    assert ax2.labels == [str(t) for t in range(0, 126, 10)]
