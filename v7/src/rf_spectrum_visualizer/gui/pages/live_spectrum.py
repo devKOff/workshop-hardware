@@ -107,6 +107,10 @@ class LiveSpectrumPage(ttk.Frame):
         # Waterfall colorbar.
         self._waterfall_colorbar: Optional[object] = None
 
+        # Wi-Fi channel overlay (off by default).
+        self._wifi_overlay = False
+        self._wifi_spans: list = []
+
         # Rate limiting for redraws.
         self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
@@ -248,6 +252,22 @@ class LiveSpectrumPage(ttk.Frame):
             command=self._reset_peaks,
         )
         self.reset_peaks_btn.pack(side=tk.LEFT, padx=(16, 0))
+
+        # Wi-Fi channel overlay checkbox.
+        self._wifi_var = tk.BooleanVar(value=False)
+        self.wifi_cb = tk.Checkbutton(
+            toolbar,
+            text="Wi-Fi channels",
+            variable=self._wifi_var,
+            command=self._on_wifi_toggle,
+            bg=BG,
+            fg=TEXT,
+            selectcolor=BG,
+            activebackground=BG,
+            activeforeground=TEXT,
+            font=("Segoe UI", 9),
+        )
+        self.wifi_cb.pack(side=tk.LEFT, padx=(16, 0))
 
         # Middle: table + chart split
         middle = tk.PanedWindow(self, bg=BG, orient=tk.HORIZONTAL)
@@ -688,6 +708,63 @@ class LiveSpectrumPage(ttk.Frame):
             )
             self._peak_hold_scatter.set_sizes([20] * len(peak_x))
 
+    def _on_wifi_toggle(self) -> None:
+        self._wifi_overlay = self._wifi_var.get()
+        if self._wifi_overlay:
+            self._draw_wifi_bands(self.ax_bar)
+        else:
+            self._remove_wifi_bands()
+        if self.chart_canvas is not None:
+            self.canvas.draw_idle()
+
+    def _draw_wifi_bands(self, ax) -> None:
+        """Draw faint shaded bands for Wi-Fi channels 1, 6, 11.
+
+        nRF channel = freq - 2400.  Wi-Fi 20 MHz channels centered at
+        2412 (ch 1), 2437 (ch 6), 2462 (ch 11) span roughly nRF
+        channels 2-22, 27-47, 52-72.
+        """
+        bands = [
+            (2, 22, "Wi-Fi ch 1 (2412 MHz)"),
+            (27, 47, "Wi-Fi ch 6 (2437 MHz)"),
+            (52, 72, "Wi-Fi ch 11 (2462 MHz)"),
+        ]
+        for start, end, label in bands:
+            span = ax.axvspan(
+                start - 0.5,
+                end + 0.5,
+                ymin=0,
+                ymax=1,
+                color="#9467bd",
+                alpha=0.15,
+                zorder=0,
+            )
+            self._wifi_spans.append(span)
+            ax.text(
+                (start + end) / 2,
+                0.98,
+                label,
+                transform=ax.get_xaxis_transform(),
+                fontsize=7,
+                color="#9467bd",
+                ha="center",
+                va="top",
+                alpha=0.8,
+            )
+
+    def _remove_wifi_bands(self) -> None:
+        """Remove Wi-Fi band spans and labels."""
+        for span in self._wifi_spans:
+            try:
+                span.remove()
+            except ValueError:
+                pass
+        self._wifi_spans.clear()
+        # Remove text labels (any text artists added for Wi-Fi labels)
+        for txt in list(self.ax_bar.texts):
+            if txt.get_text().startswith("Wi-Fi ch"):
+                txt.remove()
+
     # ------------------------------------------------------------------ chart (in-place bar updates)
     def _refresh_chart(self) -> None:
         if not HAS_MATPLOTLIB or self.chart_canvas is None:
@@ -712,6 +789,8 @@ class LiveSpectrumPage(ttk.Frame):
             self._setup_xticks(self.ax_bar)
             self._apply_y_scale(self.ax_bar, values)
             self._draw_peak_hold(chans, values)
+            if self._wifi_overlay:
+                self._draw_wifi_bands(self.ax_bar)
         else:
             # In-place update: change bar heights and colors only.
             chans = sorted(self._channel_stats)
@@ -727,6 +806,8 @@ class LiveSpectrumPage(ttk.Frame):
             self._setup_xticks(self.ax_bar)
             self._apply_y_scale(self.ax_bar, values)
             self._draw_peak_hold(chans, values)
+            if self._wifi_overlay:
+                self._draw_wifi_bands(self.ax_bar)
 
         # Waterfall: update image data in place via set_data.
         if self._waterfall_data is not None and self._waterfill_row > 0:

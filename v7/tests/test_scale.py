@@ -1,4 +1,3 @@
-
 # ------------------------------------------------------------------ y-scale
 def test_nice_round_up():
     from rf_spectrum_visualizer.gui.theme import nice_round_up
@@ -37,3 +36,81 @@ def test_y_scale_manager_fixed():
     assert m.label() == "Activity % (scale 0-100)"
     m.set_mode("auto")
     assert m.compute(3.0) == 10.0  # back to auto
+
+
+# ------------------------------------------------------------------ Wi-Fi overlay
+class _FakeSpan:
+    def __init__(self):
+        self.removed = False
+
+    def remove(self):
+        self.removed = True
+
+
+class _FakeText:
+    def __init__(self, t):
+        self._text = t
+        self.removed = False
+
+    def get_text(self):
+        return self._text
+
+    def remove(self):
+        self.removed = True
+
+
+class _FakeAx:
+    def __init__(self):
+        self.spans = []
+        self._wifi_spans = []
+        self.texts = []
+        self.ax_bar = self
+
+    def axvspan(self, start, end, **kwargs):
+        s = _FakeSpan()
+        self.spans.append(s)
+        return s
+
+    def text(self, x, y, text, **kwargs):
+        self.texts.append(_FakeText(text))
+
+    def get_xaxis_transform(self):
+        return "identity"
+
+
+def test_wifi_bands_drawing():
+    """_draw_wifi_bands should create 3 spans with correct nRF channel ranges."""
+    from rf_spectrum_visualizer.gui.pages.live_spectrum import LiveSpectrumPage
+
+    ax = _FakeAx()
+    LiveSpectrumPage._draw_wifi_bands(ax, ax)
+    assert len(ax.spans) == 3
+    # Wi-Fi ch 1: nRF ~2-22 -> axvspan(1.5, 22.5)
+    assert ax.spans[0] is not None
+    # Wi-Fi ch 6: nRF ~27-47 -> axvspan(26.5, 47.5)
+    assert ax.spans[1] is not None
+    # Wi-Fi ch 11: nRF ~52-72 -> axvspan(51.5, 72.5)
+    assert ax.spans[2] is not None
+    # Labels present
+    assert any("Wi-Fi ch 1" in t.get_text() for t in ax.texts)
+    assert any("Wi-Fi ch 6" in t.get_text() for t in ax.texts)
+    assert any("Wi-Fi ch 11" in t.get_text() for t in ax.texts)
+
+
+def test_wifi_bands_remove():
+    """_remove_wifi_bands should remove all spans and Wi-Fi text labels."""
+    from rf_spectrum_visualizer.gui.pages.live_spectrum import LiveSpectrumPage
+
+    ax = _FakeAx()
+    LiveSpectrumPage._draw_wifi_bands(ax, ax)
+    assert len(ax._wifi_spans) == 3
+
+    LiveSpectrumPage._remove_wifi_bands(ax)
+    assert all(s.removed for s in ax._wifi_spans)
+    assert ax._wifi_spans == []
+    # Wi-Fi labels should be marked removed
+    wifi_texts = [t for t in ax.texts if "Wi-Fi ch" in t.get_text()]
+    assert all(t.removed for t in wifi_texts)
+    # Non-Wi-Fi labels should remain
+    non_wifi = [t.get_text() for t in ax.texts if not t.removed]
+    assert len(non_wifi) == 0  # All texts added by _draw_wifi_bands are Wi-Fi labels
