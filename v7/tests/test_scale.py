@@ -1,12 +1,15 @@
 # ------------------------------------------------------------------ y-scale
 def test_nice_round_up():
     from rf_spectrum_visualizer.gui.theme import nice_round_up, Y_SCALE_MIN
-    assert Y_SCALE_MIN == 30.0
-    assert nice_round_up(3.0) == 30.0   # floor at 30
-    assert nice_round_up(30.0) == 30.0
-    assert nice_round_up(31.0) == 50.0
-    assert nice_round_up(49.0) == 50.0
-    assert nice_round_up(50.0) == 50.0
+    assert Y_SCALE_MIN == 5.0
+    assert nice_round_up(3.0) == 5.0   # floor at 5
+    assert nice_round_up(5.0) == 5.0
+    assert nice_round_up(10.0) == 10.0
+    assert nice_round_up(11.0) == 20.0
+    assert nice_round_up(19.0) == 20.0
+    assert nice_round_up(21.0) == 25.0
+    assert nice_round_up(25.0) == 25.0
+    assert nice_round_up(30.0) == 50.0
     assert nice_round_up(60.0) == 100.0
     assert nice_round_up(150.0) == 100.0
 
@@ -16,16 +19,15 @@ def test_y_scale_manager_auto():
     m = YScaleManager()
     assert m.mode == "auto"
     assert m.label() == "Activity % (scale 0-100)"
-    # Grow immediately (multiplier 1.25 now)
-    assert m.compute(8.0) == 30.0   # 8*1.25=10 -> max(30,10)=30 -> nice 30
-    assert m.compute(24.0) == 30.0  # 24*1.25=30 -> max(30,30)=30 -> nice 30
-    assert m.compute(25.0) == 50.0  # 25*1.25=31.25 -> nice 50
-    assert m.label() == "Activity % (scale 0-50)"
+    # Grow immediately (multiplier 1.15 now)
+    assert m.compute(8.0) == 10.0   # 8*1.15=9.2 -> max(5,9.2)=9.2 -> nice 10
+    assert m.compute(16.0) == 20.0  # 16*1.15=18.4 -> nice 20
+    assert m.label() == "Activity % (scale 0-20)"
     # Shrink slowly: hysteresis (shrink threshold = current * 0.7)
     m2 = YScaleManager()
-    m2.compute(80.0)  # 80*1.25=100 -> nice 100
-    assert m2.compute(55.0) == 100.0  # 55*1.25=68.75 -> nice 75, keep 100 (75 not < 70)
-    assert m2.compute(40.0) == 50.0   # 40*1.25=50 -> nice 50, 50 < 70, shrink to 50
+    m2.compute(80.0)  # 80*1.15=92 -> nice 100
+    assert m2.compute(55.0) == 100.0  # 55*1.15=63.25 -> nice 75, keep 100 (75 not < 70)
+    assert m2.compute(40.0) == 50.0   # 40*1.15=46 -> nice 50, 50 < 70, shrink to 50
 
 
 def test_y_scale_manager_fixed():
@@ -35,7 +37,7 @@ def test_y_scale_manager_fixed():
     assert m.compute(5.0) == 100.0
     assert m.label() == "Activity % (scale 0-100)"
     m.set_mode("auto")
-    assert m.compute(3.0) == 30.0  # back to auto, floor at 30
+    assert m.compute(3.0) == 5.0  # back to auto, floor at 5
 
 
 def test_waterfall_cmap_constant():

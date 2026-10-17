@@ -74,7 +74,6 @@ WATERFALL_MAX_ROWS = 120   # number of scan cycles to keep in the heatmap
 WATERFALL_COLS = 126       # channels 0-125
 
 # GUI update rate limits
-MAX_CHART_HZ = 10.0        # max chart redraws per second
 MAX_TABLE_HZ = 4.0         # max table row updates per second
 
 
@@ -114,7 +113,6 @@ class LiveSpectrumPage(ttk.Frame):
         self._wifi_spans: list = []
 
         # Rate limiting for redraws.
-        self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
         self._pending_stats: dict[int, ChannelStats] = {}
 
@@ -450,7 +448,6 @@ class LiveSpectrumPage(ttk.Frame):
         self._peak_hold.clear()
         self._peak_hold_scatter = None
         self._waterfall_colorbar = None
-        self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
 
         for item in self.tree.get_children():
@@ -615,21 +612,16 @@ class LiveSpectrumPage(ttk.Frame):
             else f"Pass {msg.pass_number}: {msg.pass_time_seconds*1000:.0f} ms"
         )
 
-        # Throttled refreshes.
-        now = time.perf_counter()
-        chart_interval = 1.0 / MAX_CHART_HZ
-        table_interval = 1.0 / MAX_TABLE_HZ
+        # Always refresh chart and table on new data.
+        # Chart: update bar heights in place (no ax.clear) for speed.
+        # Table: update rows in place at a reasonable rate.
+        self._refresh_chart()
 
-        redraw_start = time.perf_counter()
-        if now - self._last_chart_redraw >= chart_interval:
-            self._refresh_chart()
-            self._last_chart_redraw = now
+        now = time.perf_counter()
+        table_interval = 1.0 / MAX_TABLE_HZ
         if now - self._last_table_redraw >= table_interval:
             self._refresh_table()
             self._last_table_redraw = now
-        redraw_elapsed = time.perf_counter() - redraw_start
-        if redraw_elapsed > 0.01:
-            self._log(f"Redraw: {redraw_elapsed*1000:.0f} ms")
 
     # ------------------------------------------------------------------ waterfall
     def _add_waterfall_row(self, channel_stats: dict[int, ChannelStats]) -> None:
