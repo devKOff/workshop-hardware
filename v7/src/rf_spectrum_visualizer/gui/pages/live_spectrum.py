@@ -33,6 +33,7 @@ from rf_spectrum_visualizer.gui.theme import (
     GREEN,
     GREEN_BG,
     MUTED,
+    NICE_SCALES,
     ORANGE,
     PINK,
     RED,
@@ -40,6 +41,7 @@ from rf_spectrum_visualizer.gui.theme import (
     TEXT,
     THRESHOLD_BUSY,
     THRESHOLD_HEAVY,
+    YScaleManager,
     activity_color,
     channel_status,
 )
@@ -94,6 +96,9 @@ class LiveSpectrumPage(ttk.Frame):
 
         # Mode shared with MainWindow; if not provided, create a local one.
         self.mode_var = mode_var or tk.StringVar(value="sim")
+
+        # Y-axis auto-scale manager.
+        self._y_scale = YScaleManager()
 
         # Rate limiting for redraws.
         self._last_chart_redraw = 0.0
@@ -210,6 +215,21 @@ class LiveSpectrumPage(ttk.Frame):
         )
         self.data_source_label.pack(side=tk.LEFT, padx=(24, 0))
 
+        # Y scale control: Auto / Fixed 0-100
+        tk.Label(toolbar, text="Y scale:", bg=BG, fg=TEXT).pack(
+            side=tk.LEFT, padx=(16, 2)
+        )
+        self.y_scale_var = tk.StringVar(value="Auto")
+        self.y_scale_combo = ttk.Combobox(
+            toolbar,
+            textvariable=self.y_scale_var,
+            values=["Auto", "Fixed 0-100"],
+            state="readonly",
+            width=10,
+        )
+        self.y_scale_combo.pack(side=tk.LEFT, padx=(0, 0))
+        self.y_scale_combo.bind("<<ComboboxSelected>>", self._on_y_scale_change)
+
         # Middle: table + chart split
         middle = tk.PanedWindow(self, bg=BG, orient=tk.HORIZONTAL)
         middle.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=4)
@@ -325,6 +345,11 @@ class LiveSpectrumPage(ttk.Frame):
         self.log_text.insert(tk.END, f"{message}\n")
         self.log_text.see(tk.END)
 
+    def _on_y_scale_change(self, _event=None) -> None:
+        mode = "fixed" if self.y_scale_var.get() == "Fixed 0-100" else "auto"
+        self._y_scale.set_mode(mode)
+        self._log(f"Y scale: {mode}")
+
     # ------------------------------------------------------------------ scan control
     def _start_scan(self) -> None:
         if self._scanning:
@@ -402,6 +427,7 @@ class LiveSpectrumPage(ttk.Frame):
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self.clear_btn.config(state=tk.NORMAL)
+        self._y_scale.set_mode("fixed" if self.y_scale_var.get() == "Fixed 0-100" else "auto")
         self._log(
             f"Start Scan: channels {ch_from}-{ch_to} ({mode}) "
             f"window={window_seconds}s interval={interval_ms}ms"
@@ -594,6 +620,15 @@ class LiveSpectrumPage(ttk.Frame):
         ax.set_xticks(minor_ticks, minor=True)
         ax.set_xticklabels([str(t) for t in major_ticks])
 
+    def _apply_y_scale(self, ax, values: list[float]) -> None:
+        """Apply auto-scale or fixed y-axis and update axis label."""
+        if not values:
+            return
+        peak = max(values)
+        y_max = self._y_scale.compute(peak)
+        ax.set_ylim(0, y_max)
+        ax.set_ylabel(self._y_scale.label())
+
     # ------------------------------------------------------------------ chart (in-place bar updates)
     def _refresh_chart(self) -> None:
         if not HAS_MATPLOTLIB or self.chart_canvas is None:
@@ -616,6 +651,7 @@ class LiveSpectrumPage(ttk.Frame):
                 chans, values, color=colors, width=0.7
             )
             self._setup_xticks(self.ax_bar)
+            self._apply_y_scale(self.ax_bar, values)
         else:
             # In-place update: change bar heights and colors only.
             chans = sorted(self._channel_stats)
@@ -627,6 +663,7 @@ class LiveSpectrumPage(ttk.Frame):
                 rect.set_height(val)
                 rect.set_color(col)
             self._setup_xticks(self.ax_bar)
+            self._apply_y_scale(self.ax_bar, values)
 
         # Waterfall: update image data in place via set_data.
         if self._waterfall_data is not None and self._waterfill_row > 0:

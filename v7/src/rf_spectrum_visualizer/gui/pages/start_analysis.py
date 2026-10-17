@@ -32,10 +32,12 @@ from rf_spectrum_visualizer.gui.theme import (
     CARD,
     GREEN,
     MUTED,
+    NICE_SCALES,
     ORANGE,
     PINK,
     RED_ALERT,
     TEXT,
+    YScaleManager,
 )
 from rf_spectrum_visualizer.scan_backend import HardwareBackend, ScanBackend, SimBackend
 
@@ -66,6 +68,7 @@ class StartAnalysisPage(ttk.Frame):
         self.excluded_channels: set[int] = set(blocker_manager.excluded_channels)
         self.analysis_result = None
         self._after_id: Optional[str] = None
+        self._y_scale = YScaleManager()
 
         self._build_ui()
 
@@ -98,6 +101,19 @@ class StartAnalysisPage(ttk.Frame):
             command=self._start_analysis,
         )
         self.start_btn.pack(side=tk.RIGHT, padx=(0, 16))
+
+        # Y scale control: Auto / Fixed 0-100
+        tk.Label(header, text="Y scale:", bg=BG, fg=TEXT).pack(side=tk.RIGHT)
+        self.y_scale_var = tk.StringVar(value="Auto")
+        self.y_scale_combo = ttk.Combobox(
+            header,
+            textvariable=self.y_scale_var,
+            values=["Auto", "Fixed 0-100"],
+            state="readonly",
+            width=10,
+        )
+        self.y_scale_combo.pack(side=tk.RIGHT, padx=(0, 4))
+        self.y_scale_combo.bind("<<ComboboxSelected>>", self._on_y_scale_change)
 
         # Data Source label
         self.data_source_var = tk.StringVar(
@@ -250,6 +266,10 @@ class StartAnalysisPage(ttk.Frame):
         if self.analysis_result is not None:
             self._refresh_display()
 
+    def _on_y_scale_change(self, _event=None) -> None:
+        mode = "fixed" if self.y_scale_var.get() == "Fixed 0-100" else "auto"
+        self._y_scale.set_mode(mode)
+
     # ------------------------------------------------------------------ analysis
     def _start_analysis(self) -> None:
         if hasattr(self, "_analysis_running") and self._analysis_running:
@@ -285,6 +305,7 @@ class StartAnalysisPage(ttk.Frame):
         self._analysis_running = False
         self.start_btn.config(state=tk.NORMAL)
         self.export_btn.config(state=tk.NORMAL)
+        self._y_scale.set_mode("fixed" if self.y_scale_var.get() == "Fixed 0-100" else "auto")
 
         self.status_var.set(
             f"Analysis complete - {result.channels_analyzed} channel(s) analyzed, "
@@ -340,6 +361,10 @@ class StartAnalysisPage(ttk.Frame):
         ]
         self.ax.bar(chans, values, color=colors, width=0.7)
         self._setup_xticks(self.ax)
+        peak = max(values) if values else 0.0
+        y_max = self._y_scale.compute(peak)
+        self.ax.set_ylim(0, y_max)
+        self.ax.set_ylabel(self._y_scale.label())
         self.chart_canvas.draw()
 
     @staticmethod

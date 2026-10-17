@@ -88,3 +88,66 @@ def channel_status(activity_percent: float) -> str:
     if activity_percent >= THRESHOLD_BUSY:
         return "Busy"
     return "Clear"
+
+
+# ------------------------------------------------------------------ y-axis auto-scale
+NICE_SCALES = (10.0, 20.0, 25.0, 50.0, 100.0)
+Y_SCALE_MIN = 10.0
+
+
+def nice_round_up(value: float) -> float:
+    """Round `value` up to the next 'nice' y-axis scale.
+
+    Nice scales: 10, 20, 25, 50, 100.  Minimum is 10.
+    """
+    if value <= Y_SCALE_MIN:
+        return Y_SCALE_MIN
+    for s in NICE_SCALES:
+        if value <= s:
+            return s
+    return NICE_SCALES[-1]  # cap at 100
+
+
+class YScaleManager:
+    """Manages y-axis auto-scaling with smoothing.
+
+    In Auto mode:
+        target = max(10, current_peak * 1.25)
+        y_max  = nice_round_up(target)
+
+    Smoothing:
+        Grow immediately: if target > current, adopt target at once.
+        Shrink slowly:    if target < current, only adopt when target
+                          is sufficiently lower (hysteresis), so the scale
+                          does not flicker up and down every pass.
+    """
+
+    def __init__(self) -> None:
+        self.mode: str = "auto"   # "auto" or "fixed"
+        self._current: float = 100.0
+
+    def set_mode(self, mode: str) -> None:
+        self.mode = mode
+        if mode == "fixed":
+            self._current = 100.0
+
+    def compute(self, peak_activity: float) -> float:
+        """Return the y-axis max to use, given the current peak activity."""
+        if self.mode == "fixed":
+            return 100.0
+
+        target = nice_round_up(max(Y_SCALE_MIN, peak_activity * 1.25))
+
+        if target > self._current:
+            # Grow immediately.
+            self._current = target
+        elif target < self._current * 0.7:
+            # Shrink slowly: only when significantly lower (hysteresis).
+            self._current = target
+        # Otherwise keep current to avoid flicker.
+
+        return self._current
+
+    def label(self) -> str:
+        """Axis label including the current scale, e.g. 'Activity % (scale 0-20)'."""
+        return f"Activity % (scale 0-{int(self._current)})"
