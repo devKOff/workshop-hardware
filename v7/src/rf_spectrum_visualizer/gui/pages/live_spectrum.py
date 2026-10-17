@@ -788,14 +788,23 @@ class LiveSpectrumPage(ttk.Frame):
             chans = sorted(self._channel_stats)
             values = [self._channel_stats[c].activity_percent for c in chans]
             colors = [activity_color(v) for v in values]
-            self._bar_rects = self.ax_bar.bar(
-                chans, values, color=colors, width=1.0, edgecolor="none"
-            )
-            self._setup_xticks(self.ax_bar)
-            self._apply_y_scale(self.ax_bar, values)
-            self._draw_peak_hold(chans, values)
-            if self._wifi_overlay:
-                self._draw_wifi_bands(self.ax_bar)
+            if not chans:
+                # No data yet - keep bar_rects None so the next pass with
+                # data goes through the first-draw path.
+                self._bar_rects = None
+                self._setup_xticks(self.ax_bar)
+                self._apply_y_scale(self.ax_bar, values)
+                if self._wifi_overlay:
+                    self._draw_wifi_bands(self.ax_bar)
+            else:
+                self._bar_rects = self.ax_bar.bar(
+                    chans, values, color=colors, width=1.0, edgecolor="none"
+                )
+                self._setup_xticks(self.ax_bar)
+                self._apply_y_scale(self.ax_bar, values)
+                self._draw_peak_hold(chans, values)
+                if self._wifi_overlay:
+                    self._draw_wifi_bands(self.ax_bar)
         else:
             # In-place update: change bar heights and colors only.
             chans = sorted(self._channel_stats)
