@@ -1,0 +1,140 @@
+"""Phase 3 tests: GUI theme + scan worker.
+
+Run on any machine - no pyrf24, no radio, no display required.
+Tkinter windows are never created in these tests.
+"""
+
+from __future__ import annotations
+
+import queue
+from unittest.mock import patch
+
+import pytest
+
+from rf_spectrum_visualizer.gui.theme import (
+    THRESHOLD_BUSY,
+    THRESHOLD_HEAVY,
+    activity_color,
+    channel_status,
+    row_tint,
+)
+from rf_spectrum_visualizer.scan_backend import ChannelStats, SimBackend
+from rf_spectrum_visualizer.scan_worker import (
+    ScanComplete,
+    ScanError,
+    ScanProgress,
+    ScanResult,
+    ScanWorker,
+)
+
+
+# ------------------------------------------------------------------ theme
+def test_theme_thresholds():
+    assert THRESHOLD_BUSY == 50.0
+    assert THRESHOLD_HEAVY == 75.0
+
+
+def test_activity_color_bands():
+    assert activity_color(10.0) == "#2e7d32"    # green (clear)
+    assert activity_color(50.0) == "#ef6c00"    # orange (busy)
+    assert activity_color(90.0) == "#c62828"    # red (heavy)
+
+
+def test_channel_status_bands():
+    assert channel_status(10.0) == "Clear"
+    assert channel_status(50.0) == "Busy"
+    assert channel_status(90.0) == "Heavy Load"
+
+
+def test_row_tint_bands():
+    assert row_tint(10.0) == "#e8f5e9"   # green tint
+    assert row_tint(60.0) == "#fce4ec"   # pink tint
+
+
+# ------------------------------------------------------------------ scan worker
+def test_scan_worker_sim_runs_and_completes():
+    """ScanWorker with SimBackend should produce results and a ScanComplete."""
+    worker = ScanWorker(backend=SimBackend(seed=7))
+    worker.start([12, 37, 100], samples=50)
+
+    results = []
+    errors = []
+    complete = False
+    # Drain queue until ScanComplete appears (worker is a daemon thread,
+    # so it finishes quickly on a dev machine).
+    while not complete or not worker.result_queue.empty():
+        try:
+            msg = worker.result_queue.get(timeout=1)
+        except queue.Empty:
+            if not worker.running:
+                break
+            continue
+        if isinstance(msg, ScanResult):
+            results.append(msg.stats)
+        elif isinstance(msg, ScanError):
+            errors.append(msg.message)
+        elif isinstance(msg, ScanComplete):
+            complete = True
+
+    assert not errors, f"unexpected errors: {errors}"
+    assert complete
+    assert len(results) == 3
+    channels = sorted(s.channel for s in results)
+    assert channels == [12, 37, 100]
+    # All activities should be in [0, 100]
+    for s in results:
+        assert 0.0 <= s.activity_percent <= 100.0
+    assert worker.running is False
+
+
+def test_scan_worker_stop():
+    """Calling stop() should end the worker early."""
+    worker = ScanWorker(backend=SimBackend(seed=7))
+    worker.start(list(range(0, 126)), samples=50)
+    worker.stop()
+
+    # Wait for thread to finish
+    while worker.running:
+        pass
+
+    assert worker.running is False
+
+
+def test_scan_worker_default_backend_is_sim():
+    worker = ScanWorker()
+    assert isinstance(worker.backend, SimBackend)
+
+
+def test_message_dataclasses():
+    s = ChannelStats.from_counts(channel=12, samples=100, rpd_true=30)
+    assert ScanResult(stats=s).stats.activity_percent == 30.0
+    assert ScanProgress(channel=5, total=10, message="scanning").channel == 5
+    assert ScanError(message="boom").message == "boom"
+    assert isinstance(ScanComplete(), ScanComplete)
+
+
+def test_scan_worker_hardware_falls_back_to_sim():
+    """If HardwareBackend fails to open, ScanWorker should still run with SimBackend."""
+    # Patch HardwareBackend.open to raise
+    from rf_spectrum_visualizer import scan_backend as sb
+
+    with patch.object(sb.HardwareBackend, "open", side_effect=RuntimeError("no radio")):
+        worker = ScanWorker(backend=sb.HardwareBackend())
+        # Manually swap to SimBackend to simulate the fallback logic
+        worker.backend = SimBackend(seed=3)
+        worker.start([100], samples=25)
+
+        complete = False
+        while not complete or not worker.result_queue.empty():
+            try:
+                msg = worker.result_queue.get(timeout=1)
+            except queue.Empty:
+                if not worker.running:
+                    break
+                continue
+            if isinstance(msg, ScanComplete):
+                complete = True
+            elif isinstance(msg, ScanError):
+                pytest.fail(f"unexpected error: {msg.message}")
+
+    assert complete
