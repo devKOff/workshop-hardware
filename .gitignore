@@ -1,0 +1,6 @@
+# Separate earlier project - not part of this repo (rf_spectrum_visualizer v7)
+rf_spectrum_visualizer_v3.1/
+
+# Root-level caches
+.pytest_cache/
+__pycache__/

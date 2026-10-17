@@ -1,8 +1,0 @@
-# Runtime dependencies
-matplotlib>=3.8.0
-
-# Test dependencies
-pytest>=7.0.0
-
-# tkinter is bundled with Python (stdlib) - no install needed.
-# Hardware mode (Raspberry Pi only): pyrf24, spidev (not listed here).
