@@ -37,7 +37,7 @@ from rf_spectrum_visualizer.gui.theme import (
     RED_ALERT,
     TEXT,
 )
-from rf_spectrum_visualizer.scan_backend import SimBackend
+from rf_spectrum_visualizer.scan_backend import HardwareBackend, ScanBackend, SimBackend
 
 try:
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -52,12 +52,17 @@ class StartAnalysisPage(ttk.Frame):
     """Start Analysis page."""
 
     def __init__(
-        self, parent: tk.Widget, blocker_manager: BlockerManager, **kwargs
+        self,
+        parent: tk.Widget,
+        blocker_manager: BlockerManager,
+        mode: str = "sim",
+        **kwargs,
     ) -> None:
         super().__init__(parent, **kwargs)
         self.configure(style="Card.TFrame")
 
         self.blocker_manager = blocker_manager
+        self.mode = mode
         self.excluded_channels: set[int] = set(blocker_manager.excluded_channels)
         self.analysis_result = None
         self._after_id: Optional[str] = None
@@ -92,7 +97,20 @@ class StartAnalysisPage(ttk.Frame):
             font=("Segoe UI", 10, "bold"),
             command=self._start_analysis,
         )
-        self.start_btn.pack(side=tk.RIGHT)
+        self.start_btn.pack(side=tk.RIGHT, padx=(0, 16))
+
+        # Data Source label
+        self.data_source_var = tk.StringVar(
+            value=f"Data Source: {'Hardware' if self.mode == 'hardware' else 'Simulation'}"
+        )
+        self.data_source_label = tk.Label(
+            header,
+            textvariable=self.data_source_var,
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        )
+        self.data_source_label.pack(side=tk.RIGHT)
 
         # Status line
         self.status_var = tk.StringVar(value="Analysis not yet run")
@@ -241,7 +259,19 @@ class StartAnalysisPage(ttk.Frame):
         self.status_var.set("Analyzing all 126 channels (4 cycles)...")
         self.export_btn.config(state=tk.DISABLED)
 
-        engine = AnalysisEngine(backend=SimBackend())
+        backend: ScanBackend
+        if self.mode == "hardware":
+            try:
+                backend = HardwareBackend()
+            except Exception:
+                backend = SimBackend()
+                self.data_source_var.set(
+                    "Data Source: Simulation (hardware unavailable)"
+                )
+        else:
+            backend = SimBackend()
+
+        engine = AnalysisEngine(backend=backend)
         engine.set_excluded_channels(self.blocker_manager.excluded_channels)
 
         def _run():

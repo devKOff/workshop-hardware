@@ -71,7 +71,9 @@ WATERFALL_COLS = 126       # channels 0-125
 class LiveSpectrumPage(ttk.Frame):
     """Live Spectrum page."""
 
-    def __init__(self, parent: tk.Widget, **kwargs) -> None:
+    def __init__(
+        self, parent: tk.Widget, mode_var: Optional[tk.StringVar] = None, **kwargs
+    ) -> None:
         super().__init__(parent, **kwargs)
         self.configure(style="Card.TFrame")
 
@@ -82,6 +84,9 @@ class LiveSpectrumPage(ttk.Frame):
 
         # Waterfall buffer: list of rows, each row is a list of 126 activity %.
         self._waterfall_rows: list[list[float]] = []
+
+        # Mode shared with MainWindow; if not provided, create a local one.
+        self.mode_var = mode_var or tk.StringVar(value="sim")
 
         self._build_ui()
         self._poll_queue()
