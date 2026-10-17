@@ -26,6 +26,7 @@ from rf_spectrum_visualizer.analysis import (
     RECOMMENDED,
     run_quick_analysis,
 )
+from rf_spectrum_visualizer.blocker import BlockerManager
 from rf_spectrum_visualizer.gui.theme import (
     BG,
     CARD,
@@ -50,11 +51,14 @@ except ImportError:  # pragma: no cover - matplotlib required for GUI
 class StartAnalysisPage(ttk.Frame):
     """Start Analysis page."""
 
-    def __init__(self, parent: tk.Widget, **kwargs) -> None:
+    def __init__(
+        self, parent: tk.Widget, blocker_manager: BlockerManager, **kwargs
+    ) -> None:
         super().__init__(parent, **kwargs)
         self.configure(style="Card.TFrame")
 
-        self.excluded_channels: set[int] = set()
+        self.blocker_manager = blocker_manager
+        self.excluded_channels: set[int] = set(blocker_manager.excluded_channels)
         self.analysis_result = None
         self._after_id: Optional[str] = None
 
@@ -224,6 +228,7 @@ class StartAnalysisPage(ttk.Frame):
     def set_excluded_channels(self, channels: set[int]) -> None:
         """Update excluded channels (from Blocker page) and refresh display."""
         self.excluded_channels = set(channels)
+        self.blocker_manager.set_excluded(channels)
         if self.analysis_result is not None:
             self._refresh_display()
 
@@ -237,7 +242,7 @@ class StartAnalysisPage(ttk.Frame):
         self.export_btn.config(state=tk.DISABLED)
 
         engine = AnalysisEngine(backend=SimBackend())
-        engine.set_excluded_channels(self.excluded_channels)
+        engine.set_excluded_channels(self.blocker_manager.excluded_channels)
 
         def _run():
             result = engine.run(cycles=4, samples_per_channel=100)
