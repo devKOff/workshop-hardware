@@ -45,57 +45,68 @@ def test_waterfall_cmap_constant():
     assert WATERFALL_CMAP == "inferno"
 
 
-# ------------------------------------------------------------------ ScanController state machine
-def test_scan_controller_start_stop_start():
-    from rf_spectrum_visualizer.scan_worker import ScanController
-    c = ScanController()
+# ------------------------------------------------------------------ ScanState state machine
+def test_scan_state_start_stop_start():
+    from rf_spectrum_visualizer.scan_worker import ScanState
+    c = ScanState()
     assert c.start_enabled
     assert not c.stop_enabled
     assert c.start() is True
     assert not c.start_enabled
+    assert not c.stop_enabled  # STARTING: stop not yet enabled
+    c.started()
+    assert c.state == ScanState.RUNNING
     assert c.stop_enabled
     c.stop()
+    assert c.state == ScanState.STOPPING
+    assert not c.start_enabled
+    assert not c.stop_enabled
+    c.stopped()
     assert c.start_enabled
     assert not c.stop_enabled
     assert c.start() is True  # can start again after stop
 
 
-def test_scan_controller_start_complete_start():
-    from rf_spectrum_visualizer.scan_worker import ScanController
-    c = ScanController()
+def test_scan_state_start_complete_start():
+    from rf_spectrum_visualizer.scan_worker import ScanState
+    c = ScanState()
     assert c.start() is True
+    c.started()
     assert not c.start_enabled
     c.complete()
     assert c.start_enabled
     assert c.start() is True
 
 
-def test_scan_controller_start_error_start():
-    from rf_spectrum_visualizer.scan_worker import ScanController
-    c = ScanController()
+def test_scan_state_start_error_start():
+    from rf_spectrum_visualizer.scan_worker import ScanState
+    c = ScanState()
     assert c.start() is True
+    c.started()
     assert not c.start_enabled
     c.error()
     assert c.start_enabled
     assert c.start() is True
 
 
-def test_scan_controller_rapid_start_stop():
-    from rf_spectrum_visualizer.scan_worker import ScanController
-    c = ScanController()
+def test_scan_state_rapid_start_stop():
+    from rf_spectrum_visualizer.scan_worker import ScanState
+    c = ScanState()
     for _ in range(10):
         assert c.start() is True
+        c.started()
         assert not c.start_enabled
         assert c.stop_enabled
         c.stop()
+        c.stopped()
         assert c.start_enabled
 
 
-def test_scan_controller_double_start_blocked():
-    from rf_spectrum_visualizer.scan_worker import ScanController
-    c = ScanController()
+def test_scan_state_double_start_blocked():
+    from rf_spectrum_visualizer.scan_worker import ScanState
+    c = ScanState()
     assert c.start() is True
-    assert c.start() is False  # already scanning, blocked
+    assert c.start() is False  # already starting, blocked
 
 
 # ------------------------------------------------------------------ Wi-Fi overlay
