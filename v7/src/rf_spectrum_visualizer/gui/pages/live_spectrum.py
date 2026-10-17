@@ -53,9 +53,9 @@ from rf_spectrum_visualizer.scan_backend import (
 )
 from rf_spectrum_visualizer.scan_worker import (
     ScanComplete,
-    ScanController,
     ScanError,
     ScanPass,
+    ScanState,
     ScanWorker,
 )
 
@@ -88,7 +88,7 @@ class LiveSpectrumPage(ttk.Frame):
 
         self.worker: Optional[ScanWorker] = None
         self._channel_stats: dict[int, ChannelStats] = {}
-        self._scanning = ScanController()
+        self._scanning = ScanState()
         self._after_id: Optional[str] = None
 
         # Waterfall buffer: fixed numpy array, rows = scan cycles.
@@ -115,6 +115,7 @@ class LiveSpectrumPage(ttk.Frame):
         # Rate limiting for redraws.
         self._last_table_redraw = 0.0
         self._pending_stats: dict[int, ChannelStats] = {}
+        self._stop_poll_count = 0
 
         self._build_ui()
         self._poll_queue()
@@ -399,6 +400,10 @@ class LiveSpectrumPage(ttk.Frame):
     def _start_scan(self) -> None:
         if not self._scanning.start_enabled:
             return
+        if self.worker is not None and self.worker.running:
+            # Old worker thread still alive - do not start a new one
+            self._log("Scan already running - ignoring start request")
+            return
         try:
             ch_from = int(self.ch_from.get())
             ch_to = int(self.ch_to.get())
@@ -487,14 +492,41 @@ class LiveSpectrumPage(ttk.Frame):
             window_seconds=window_seconds,
             interval_ms=interval_ms,
         )
+        self._scanning.started()
 
     def _stop_scan(self) -> None:
         if not self._scanning.stop_enabled:
             return
+        if self.worker is None:
+            return
         self.worker.stop()
         self._scanning.stop()
+        self.start_btn.config(state=tk.DISABLED)
+        self.stop_btn.config(state=tk.DISABLED)
+        self._log("Scan stopping")
+        self._stop_poll_count = 0
+        self._poll_for_stop()
+
+    def _poll_for_stop(self) -> None:
+        """Poll until the worker thread has fully exited, then return to idle."""
+        if self.worker is not None and self.worker.running:
+            self._stop_poll_count += 1
+            if self._stop_poll_count > 20:  # ~2 second timeout
+                self._scanning.stopped()
+                self.start_btn.config(state=tk.NORMAL)
+                self.stop_btn.config(state=tk.DISABLED)
+                self.worker = None
+                self.scan_rate_var.set("Scan rate: -- ch/s")
+                self._log("Scan stop timeout - worker thread did not exit; recovered to idle")
+                return
+            self._after_id = self.after(100, self._poll_for_stop)
+            return
+        # Worker thread has exited
+        self._scanning.stopped()
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
+        self.worker = None
+        self.scan_rate_var.set("Scan rate: -- ch/s")
         self._log("Scan stopped")
 
     def _clear_display(self) -> None:
@@ -566,16 +598,14 @@ class LiveSpectrumPage(ttk.Frame):
                 self.start_btn.config(state=tk.NORMAL)
                 self.stop_btn.config(state=tk.DISABLED)
                 self.scan_rate_var.set("Scan rate: -- ch/s")
-                if self.worker is not None and not self.worker.running:
-                    self.worker = None
+                self.worker = None
             elif isinstance(msg, ScanComplete):
                 self._log("Scan complete")
                 self._scanning.complete()
                 self.start_btn.config(state=tk.NORMAL)
                 self.stop_btn.config(state=tk.DISABLED)
                 self.scan_rate_var.set("Scan rate: -- ch/s")
-                if self.worker is not None and not self.worker.running:
-                    self.worker = None
+                self.worker = None
 
         if latest_pass is not None:
             self._handle_scan_pass(latest_pass)
