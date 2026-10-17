@@ -104,6 +104,9 @@ class LiveSpectrumPage(ttk.Frame):
         self._peak_hold: dict[int, float] = {}
         self._peak_hold_scatter: Optional[object] = None
 
+        # Waterfall colorbar.
+        self._waterfall_colorbar: Optional[object] = None
+
         # Rate limiting for redraws.
         self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
@@ -424,6 +427,7 @@ class LiveSpectrumPage(ttk.Frame):
         self._waterfill_row = 0
         self._peak_hold.clear()
         self._peak_hold_scatter = None
+        self._waterfall_colorbar = None
         self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
 
@@ -479,6 +483,7 @@ class LiveSpectrumPage(ttk.Frame):
         self._waterfill_row = 0
         self._peak_hold.clear()
         self._peak_hold_scatter = None
+        self._waterfall_colorbar = None
         for item in self.tree.get_children():
             self.tree.delete(item)
         if self.chart_canvas is not None and HAS_MATPLOTLIB:
@@ -726,6 +731,13 @@ class LiveSpectrumPage(ttk.Frame):
         # Waterfall: update image data in place via set_data.
         if self._waterfall_data is not None and self._waterfill_row > 0:
             rows_to_show = min(self._waterfill_row, WATERFALL_MAX_ROWS)
+            # Use same auto-scale as bar chart for waterfall vmax.
+            peak = max(
+                [s.activity_percent for s in self._channel_stats.values()],
+                default=0.0,
+            )
+            wf_vmax = self._y_scale.compute(peak) if self._channel_stats else 100.0
+
             if self.im is None:
                 self.im = self.ax_wf.imshow(
                     self._waterfall_data[:rows_to_show, :],
@@ -733,17 +745,24 @@ class LiveSpectrumPage(ttk.Frame):
                     interpolation="nearest",
                     cmap="RdYlGn_r",
                     vmin=0,
-                    vmax=100,
+                    vmax=wf_vmax,
                     origin="upper",
                     extent=[0, WATERFALL_COLS - 1, 0, rows_to_show - 1],
                 )
                 self.ax_wf.set_xlabel("Channel")
                 self.ax_wf.set_ylabel("Scan cycle (newest at top)")
                 self.ax_wf.set_yticks([])
+                # Colorbar labelled Activity %.
+                self._waterfall_colorbar = self.fig.colorbar(
+                    self.im, ax=self.ax_wf, label="Activity %"
+                )
             else:
                 self.im.set_data(self._waterfall_data[:rows_to_show, :])
+                self.im.set_clim(0, wf_vmax)
                 self.im.set_extent(
                     [0, WATERFALL_COLS - 1, 0, rows_to_show - 1]
                 )
+                if self._waterfall_colorbar is not None:
+                    self._waterfall_colorbar.draw_all()
 
         self.canvas.draw_idle()
