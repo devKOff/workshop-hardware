@@ -100,6 +100,10 @@ class LiveSpectrumPage(ttk.Frame):
         # Y-axis auto-scale manager.
         self._y_scale = YScaleManager()
 
+        # Peak hold: per-channel max activity over recent passes.
+        self._peak_hold: dict[int, float] = {}
+        self._peak_hold_scatter: Optional[object] = None
+
         # Rate limiting for redraws.
         self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
@@ -230,6 +234,18 @@ class LiveSpectrumPage(ttk.Frame):
         self.y_scale_combo.pack(side=tk.LEFT, padx=(0, 0))
         self.y_scale_combo.bind("<<ComboboxSelected>>", self._on_y_scale_change)
 
+        self.reset_peaks_btn = tk.Button(
+            toolbar,
+            text="Reset peaks",
+            bg=RED,
+            fg="white",
+            bd=0,
+            padx=10,
+            pady=4,
+            command=self._reset_peaks,
+        )
+        self.reset_peaks_btn.pack(side=tk.LEFT, padx=(16, 0))
+
         # Middle: table + chart split
         middle = tk.PanedWindow(self, bg=BG, orient=tk.HORIZONTAL)
         middle.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=8, pady=4)
@@ -350,6 +366,12 @@ class LiveSpectrumPage(ttk.Frame):
         self._y_scale.set_mode(mode)
         self._log(f"Y scale: {mode}")
 
+    def _reset_peaks(self) -> None:
+        """Clear peak hold markers."""
+        self._peak_hold.clear()
+        self._peak_hold_scatter = None
+        self._log("Peak hold reset")
+
     # ------------------------------------------------------------------ scan control
     def _start_scan(self) -> None:
         if self._scanning:
@@ -400,6 +422,8 @@ class LiveSpectrumPage(ttk.Frame):
         self._tree_items.clear()
         self._waterfall_data = None
         self._waterfill_row = 0
+        self._peak_hold.clear()
+        self._peak_hold_scatter = None
         self._last_chart_redraw = 0.0
         self._last_table_redraw = 0.0
 
@@ -453,6 +477,8 @@ class LiveSpectrumPage(ttk.Frame):
         self._tree_items.clear()
         self._waterfall_data = None
         self._waterfill_row = 0
+        self._peak_hold.clear()
+        self._peak_hold_scatter = None
         for item in self.tree.get_children():
             self.tree.delete(item)
         if self.chart_canvas is not None and HAS_MATPLOTLIB:
@@ -534,6 +560,11 @@ class LiveSpectrumPage(ttk.Frame):
         """Apply one ScanPass: update stats, schedule table/chart refresh."""
         self._channel_stats = msg.channel_stats
         self._pending_stats = msg.channel_stats
+
+        # Update peak hold per channel.
+        for ch, s in msg.channel_stats.items():
+            prev = self._peak_hold.get(ch, 0.0)
+            self._peak_hold[ch] = max(prev, s.activity_percent)
 
         # Add waterfall row from newest pass.
         self._add_waterfall_row(msg.channel_stats)
@@ -629,6 +660,29 @@ class LiveSpectrumPage(ttk.Frame):
         ax.set_ylim(0, y_max)
         ax.set_ylabel(self._y_scale.label())
 
+    def _draw_peak_hold(self, chans: list[int], values: list[float]) -> None:
+        """Draw peak hold markers (red diamonds) at per-channel max activity."""
+        if not HAS_MATPLOTLIB:
+            return
+        peak_x = []
+        peak_y = []
+        for ch in chans:
+            ph = self._peak_hold.get(ch)
+            if ph is not None and ph > 0:
+                peak_x.append(ch)
+                peak_y.append(ph)
+
+        if self._peak_hold_scatter is None:
+            if peak_x:
+                self._peak_hold_scatter = self.ax_bar.scatter(
+                    peak_x, peak_y, marker="D", color="red", s=20, zorder=5
+                )
+        else:
+            self._peak_hold_scatter.set_offsets(
+                list(zip(peak_x, peak_y)) if peak_x else []
+            )
+            self._peak_hold_scatter.set_sizes([20] * len(peak_x))
+
     # ------------------------------------------------------------------ chart (in-place bar updates)
     def _refresh_chart(self) -> None:
         if not HAS_MATPLOTLIB or self.chart_canvas is None:
@@ -648,10 +702,11 @@ class LiveSpectrumPage(ttk.Frame):
             values = [self._channel_stats[c].activity_percent for c in chans]
             colors = [activity_color(v) for v in values]
             self._bar_rects = self.ax_bar.bar(
-                chans, values, color=colors, width=0.7
+                chans, values, color=colors, width=1.0, edgecolor="none"
             )
             self._setup_xticks(self.ax_bar)
             self._apply_y_scale(self.ax_bar, values)
+            self._draw_peak_hold(chans, values)
         else:
             # In-place update: change bar heights and colors only.
             chans = sorted(self._channel_stats)
@@ -662,8 +717,11 @@ class LiveSpectrumPage(ttk.Frame):
             ):
                 rect.set_height(val)
                 rect.set_color(col)
+                rect.set_width(1.0)
+                rect.set_edgecolor("none")
             self._setup_xticks(self.ax_bar)
             self._apply_y_scale(self.ax_bar, values)
+            self._draw_peak_hold(chans, values)
 
         # Waterfall: update image data in place via set_data.
         if self._waterfall_data is not None and self._waterfill_row > 0:
