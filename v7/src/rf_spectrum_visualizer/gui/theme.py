@@ -92,20 +92,20 @@ def channel_status(activity_percent: float) -> str:
 
 # ------------------------------------------------------------------ y-axis auto-scale
 NICE_SCALES = (10.0, 20.0, 25.0, 50.0, 100.0)
-Y_SCALE_MIN = 5.0
+MIN_SCALE_MAX = 25.0
 
 
-# Waterfall colour theme (Phase 9 - kept)
-WATERFALL_CMAP = "inferno"   # try "magma", "viridis", "plasma", "turbo", "cividis"
+# Waterfall colour theme
+WATERFALL_CMAP = "RdYlGn_r"   # try "magma", "viridis", "plasma", "turbo", "cividis"
 
 
 def nice_round_up(value: float) -> float:
     """Round `value` up to the next 'nice' y-axis scale.
 
-    Nice scales: 10, 20, 25, 50, 100.  Minimum is 5.
+    Nice scales: 10, 20, 25, 50, 100.  Minimum is 25.
     """
-    if value <= Y_SCALE_MIN:
-        return Y_SCALE_MIN
+    if value <= MIN_SCALE_MAX:
+        return MIN_SCALE_MAX
     for s in NICE_SCALES:
         if value <= s:
             return s
@@ -116,7 +116,7 @@ class YScaleManager:
     """Manages y-axis auto-scaling with smoothing.
 
     In Auto mode:
-        target = max(5, current_peak * 1.15)
+        target = max(25, current_peak * 1.15)
         y_max  = nice_round_up(target)
 
     Smoothing:
@@ -128,7 +128,7 @@ class YScaleManager:
 
     def __init__(self) -> None:
         self.mode: str = "auto"   # "auto" or "fixed"
-        self._current: float = 100.0
+        self._current: float = 25.0
 
     def set_mode(self, mode: str) -> None:
         self.mode = mode
@@ -140,7 +140,7 @@ class YScaleManager:
         if self.mode == "fixed":
             return 100.0
 
-        target = nice_round_up(max(Y_SCALE_MIN, peak_activity * 1.15))
+        target = nice_round_up(max(MIN_SCALE_MAX, peak_activity * 1.15))
 
         if target > self._current:
             # Grow immediately.

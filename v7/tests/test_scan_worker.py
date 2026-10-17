@@ -77,7 +77,7 @@ def test_scan_state_complete_from_running():
     s.started()
     s.complete()
     assert s.state == ScanState.FINISHED
-    assert not s.start_enabled
+    assert s.start_enabled  # can start again after complete
     assert not s.stop_enabled
 
 
@@ -96,7 +96,7 @@ def test_scan_state_error_from_running():
     s.started()
     s.error()
     assert s.state == ScanState.ERROR
-    assert not s.start_enabled
+    assert s.start_enabled  # can start again after error
     assert not s.stop_enabled
 
 
