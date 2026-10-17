@@ -129,15 +129,15 @@ class ScanState:
 
     @property
     def start_enabled(self) -> bool:
-        return self._state == self.IDLE
+        return self._state in (self.IDLE, self.FINISHED, self.ERROR)
 
     @property
     def stop_enabled(self) -> bool:
         return self._state == self.RUNNING
 
     def start(self) -> bool:
-        """Attempt to start scanning. Returns True if started, False if not idle."""
-        if self._state != self.IDLE:
+        """Attempt to start scanning. Returns True if started, False if not in a startable state."""
+        if self._state not in (self.IDLE, self.FINISHED, self.ERROR):
             return False
         self._state = self.STARTING
         return True
@@ -281,6 +281,8 @@ class ScanWorker:
     def stop(self) -> None:
         """Request the worker stop after the current pass finishes."""
         self._stop.set()
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
 
     def _update_buffer(self, channel: int, stats: ChannelStats, now: float) -> None:
         buf = self._buffers.get(channel)
