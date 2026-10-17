@@ -91,47 +91,85 @@ class ScanComplete:
     pass
 
 
-class ScanController:
-    """Small testable state machine for scan start/stop lifecycle.
+class ScanState:
+    """Explicit scan state machine for the Live Spectrum page.
 
-    The GUI owns the button widgets; this controller owns the boolean
-    state (scanning / not scanning) and answers whether Start or Stop
-    should be enabled.  No tkinter, no pyrf24, no display required.
+    States: IDLE, STARTING, RUNNING, STOPPING, FINISHED, ERROR.
+
+    Start is enabled only in IDLE. Stop is enabled only in RUNNING.
+    Both are disabled in STOPPING.  No tkinter, no pyrf24, no display
+    required - safe to unit test headless.
     """
 
+    IDLE = "idle"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    FINISHED = "finished"
+    ERROR = "error"
+
     def __init__(self) -> None:
-        self._scanning = False
+        self._state = self.IDLE
 
     @property
-    def scanning(self) -> bool:
-        return self._scanning
+    def state(self) -> str:
+        return self._state
+
+    @property
+    def is_idle(self) -> bool:
+        return self._state == self.IDLE
+
+    @property
+    def is_running(self) -> bool:
+        return self._state == self.RUNNING
+
+    @property
+    def is_stopping(self) -> bool:
+        return self._state == self.STOPPING
 
     @property
     def start_enabled(self) -> bool:
-        return not self._scanning
+        return self._state == self.IDLE
 
     @property
     def stop_enabled(self) -> bool:
-        return self._scanning
+        return self._state == self.RUNNING
 
     def start(self) -> bool:
-        """Attempt to start scanning. Returns True if started, False if already scanning."""
-        if self._scanning:
+        """Attempt to start scanning. Returns True if started, False if not idle."""
+        if self._state != self.IDLE:
             return False
-        self._scanning = True
+        self._state = self.STARTING
         return True
 
+    def started(self) -> None:
+        """Called when the worker thread has been created."""
+        if self._state == self.STARTING:
+            self._state = self.RUNNING
+
     def stop(self) -> None:
-        """Mark scanning as stopped (user pressed Stop Scan)."""
-        self._scanning = False
+        """Mark scanning as stopping (user pressed Stop Scan)."""
+        if self._state == self.RUNNING:
+            self._state = self.STOPPING
+
+    def stopped(self) -> None:
+        """Called when the worker thread has fully exited."""
+        if self._state == self.STOPPING:
+            self._state = self.IDLE
 
     def complete(self) -> None:
         """Mark scanning as complete (scan finished normally)."""
-        self._scanning = False
+        if self._state in (self.RUNNING, self.STOPPING):
+            self._state = self.FINISHED
 
     def error(self) -> None:
         """Mark scanning as errored (radio failure, etc.)."""
-        self._scanning = False
+        if self._state in (self.RUNNING, self.STOPPING):
+            self._state = self.ERROR
+
+    def reset(self) -> None:
+        """Return to idle state."""
+        self._state = self.IDLE
 
 
 class RollingChannelBuffer:
