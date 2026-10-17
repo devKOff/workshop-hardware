@@ -339,6 +339,7 @@ class StartAnalysisPage(ttk.Frame):
             for c in self.analysis_result.channels
         ]
         self.ax.bar(chans, values, color=colors, width=0.7)
+        self._setup_xticks(self.ax)
         self.chart_canvas.draw()
 
     @staticmethod
@@ -348,6 +349,18 @@ class StartAnalysisPage(ttk.Frame):
         if activity >= 50.0:
             return ORANGE
         return GREEN
+
+    @staticmethod
+    def _setup_xticks(ax) -> None:
+        """Set x-axis ticks: major every 10 channels, minor every 5.
+
+        Prevents tick-label overlap when all 126 channels are shown.
+        """
+        major_ticks = list(range(0, 126, 10))
+        minor_ticks = list(range(0, 126, 5))
+        ax.set_xticks(major_ticks)
+        ax.set_xticks(minor_ticks, minor=True)
+        ax.set_xticklabels([str(t) for t in major_ticks])
 
     # ------------------------------------------------------------------ export
     def _export_csv(self) -> None:

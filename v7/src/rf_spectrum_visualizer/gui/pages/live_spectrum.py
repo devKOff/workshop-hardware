@@ -582,6 +582,18 @@ class LiveSpectrumPage(ttk.Frame):
         self.tree.tag_configure("clear", background=GREEN_BG)
         self.tree.tag_configure("busy", background=PINK)
 
+    @staticmethod
+    def _setup_xticks(ax) -> None:
+        """Set x-axis ticks: major every 10 channels, minor every 5.
+
+        Prevents tick-label overlap when all 126 channels are shown.
+        """
+        major_ticks = list(range(0, 126, 10))
+        minor_ticks = list(range(0, 126, 5))
+        ax.set_xticks(major_ticks)
+        ax.set_xticks(minor_ticks, minor=True)
+        ax.set_xticklabels([str(t) for t in major_ticks])
+
     # ------------------------------------------------------------------ chart (in-place bar updates)
     def _refresh_chart(self) -> None:
         if not HAS_MATPLOTLIB or self.chart_canvas is None:
@@ -603,6 +615,7 @@ class LiveSpectrumPage(ttk.Frame):
             self._bar_rects = self.ax_bar.bar(
                 chans, values, color=colors, width=0.7
             )
+            self._setup_xticks(self.ax_bar)
         else:
             # In-place update: change bar heights and colors only.
             chans = sorted(self._channel_stats)
@@ -613,8 +626,7 @@ class LiveSpectrumPage(ttk.Frame):
             ):
                 rect.set_height(val)
                 rect.set_color(col)
-            self.ax_bar.set_xticks(chans)
-            self.ax_bar.set_xticklabels([str(c) for c in chans])
+            self._setup_xticks(self.ax_bar)
 
         # Waterfall: update image data in place via set_data.
         if self._waterfall_data is not None and self._waterfill_row > 0:

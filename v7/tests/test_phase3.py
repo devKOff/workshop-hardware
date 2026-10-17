@@ -149,4 +149,72 @@ def test_scan_worker_hardware_falls_back_to_sim():
 
     assert complete
 
+
+# ------------------------------------------------------------------ xticks
+def test_setup_xticks_major_every_10_minor_every_5():
+    """_setup_xticks must set major ticks every 10, minor every 5."""
+    from rf_spectrum_visualizer.gui.pages.live_spectrum import LiveSpectrumPage
+    from rf_spectrum_visualizer.gui.pages.start_analysis import StartAnalysisPage
+
+    class FakeAx:
+        def __init__(self) -> None:
+            self.major = None
+            self.minor = None
+            self.labels = None
+
+        def set_xticks(self, ticks, minor=False):
+            if minor:
+                self.minor = list(ticks)
+            else:
+                self.major = list(ticks)
+
+        def set_xticklabels(self, labels):
+            self.labels = list(labels)
+
+    ax = FakeAx()
+    LiveSpectrumPage._setup_xticks(ax)
+    assert ax.major == list(range(0, 126, 10))
+    assert ax.minor == list(range(0, 126, 5))
+    assert ax.labels == [str(t) for t in range(0, 126, 10)]
+
+    ax2 = FakeAx()
+    StartAnalysisPage._setup_xticks(ax2)
+    assert ax2.major == list(range(0, 126, 10))
+    assert ax2.minor == list(range(0, 126, 5))
+    assert ax2.labels == [str(t) for t in range(0, 126, 10)]
+
     assert complete
+
+
+
+def test_setup_xticks_major_every_10_minor_every_5():
+    """_setup_xticks must set major ticks every 10, minor every 5."""
+    from rf_spectrum_visualizer.gui.pages.live_spectrum import LiveSpectrumPage
+    from rf_spectrum_visualizer.gui.pages.start_analysis import StartAnalysisPage
+
+    class FakeAx:
+        def __init__(self) -> None:
+            self.major = None
+            self.minor = None
+            self.labels = None
+
+        def set_xticks(self, ticks, minor=False):
+            if minor:
+                self.minor = list(ticks)
+            else:
+                self.major = list(ticks)
+
+        def set_xticklabels(self, labels):
+            self.labels = list(labels)
+
+    ax = FakeAx()
+    LiveSpectrumPage._setup_xticks(ax)
+    assert ax.major == list(range(0, 126, 10))
+    assert ax.minor == list(range(0, 126, 5))
+    assert ax.labels == [str(t) for t in range(0, 126, 10)]
+
+    ax2 = FakeAx()
+    StartAnalysisPage._setup_xticks(ax2)
+    assert ax2.major == list(range(0, 126, 10))
+    assert ax2.minor == list(range(0, 126, 5))
+    assert ax2.labels == [str(t) for t in range(0, 126, 10)]
