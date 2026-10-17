@@ -2,17 +2,22 @@
 
 Page 1: Live Spectrum.
 
-Toolbar: Mode dropdown (sim/hardware), Start Scan, Stop Scan, Channels
-from-to spinboxes (0-125), Window (s), Interval (ms).
-Data Source note label.
+Toolbar: Mode dropdown (sim/hardware), Start Scan, Stop Scan, Clear Display,
+Channels from-to spinboxes (0-125), Window (s), Interval (ms), scan-rate
+readout, Data Source note label.
 Channel table: Ch, Freq MHz, Activity %, Status (Clear/Busy/Heavy Load),
 Samples, RPD+, Data OK — green/pink row colors.
 Live bar chart: Activity % by channel, green/orange/red, dotted threshold
 lines.
+Waterfall: heatmap of Activity % over time (rows = scan cycles, columns =
+channels 0-125).
 Diagnostics/Log box.
 
 Background scan thread + queue; clean Start/Stop; errors logged; falls
 back to SimBackend if HardwareBackend fails.
+
+The only metric is Activity % = (samples with RPD true / total samples) x 100.
+No dBm or calibrated power is ever claimed.
 """
 
 from __future__ import annotations
@@ -36,7 +41,6 @@ from rf_spectrum_visualizer.gui.theme import (
     THRESHOLD_HEAVY,
     activity_color,
     channel_status,
-    row_tint,
 )
 from rf_spectrum_visualizer.scan_backend import (
     ChannelStats,
@@ -59,6 +63,10 @@ try:
 except ImportError:  # pragma: no cover - matplotlib required for GUI
     HAS_MATPLOTLIB = False
 
+# Waterfall config
+WATERFALL_MAX_ROWS = 120   # number of scan cycles to keep in the heatmap
+WATERFALL_COLS = 126       # channels 0-125
+
 
 class LiveSpectrumPage(ttk.Frame):
     """Live Spectrum page."""
@@ -71,6 +79,9 @@ class LiveSpectrumPage(ttk.Frame):
         self._channel_stats: dict[int, ChannelStats] = {}
         self._scanning = False
         self._after_id: Optional[str] = None
+
+        # Waterfall buffer: list of rows, each row is a list of 126 activity %.
+        self._waterfall_rows: list[list[float]] = []
 
         self._build_ui()
         self._poll_queue()
@@ -117,6 +128,18 @@ class LiveSpectrumPage(ttk.Frame):
         )
         self.stop_btn.pack(side=tk.LEFT, padx=2)
 
+        self.clear_btn = tk.Button(
+            toolbar,
+            text="Clear Display",
+            bg=ORANGE,
+            fg="white",
+            bd=0,
+            padx=12,
+            pady=4,
+            command=self._clear_display,
+        )
+        self.clear_btn.pack(side=tk.LEFT, padx=2)
+
         tk.Label(toolbar, text="Ch from:", bg=BG, fg=TEXT).pack(
             side=tk.LEFT, padx=(16, 2)
         )
@@ -146,6 +169,17 @@ class LiveSpectrumPage(ttk.Frame):
         self.interval_ms.delete(0, tk.END)
         self.interval_ms.insert(0, "1000")
         self.interval_ms.pack(side=tk.LEFT)
+
+        # Scan-rate readout
+        self.scan_rate_var = tk.StringVar(value="Scan rate: -- ch/s")
+        self.scan_rate_label = tk.Label(
+            toolbar,
+            textvariable=self.scan_rate_var,
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.scan_rate_label.pack(side=tk.LEFT, padx=(16, 0))
 
         # Data Source note
         self.data_source_var = tk.StringVar(
@@ -202,7 +236,7 @@ class LiveSpectrumPage(ttk.Frame):
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.configure(yscrollcommand=tree_scroll.set)
 
-        # Bar chart
+        # Chart + waterfall stacked
         chart_frame = tk.Frame(middle, bg=CARD, bd=1, relief=tk.SOLID)
         middle.add(chart_frame)
 
@@ -216,17 +250,23 @@ class LiveSpectrumPage(ttk.Frame):
 
         self.chart_canvas: Optional[object] = None
         if HAS_MATPLOTLIB:
-            self.fig = Figure(figsize=(5, 4), dpi=100)
-            self.ax = self.fig.add_subplot(111)
-            self.ax.set_xlabel("Channel")
-            self.ax.set_ylabel("Activity %")
-            self.ax.set_ylim(0, 105)
-            self.ax.axhline(
+            # Bar chart (top half)
+            self.fig = Figure(figsize=(5, 5), dpi=100)
+            self.ax_bar = self.fig.add_subplot(2, 1, 1)
+            self.ax_bar.set_ylabel("Activity %")
+            self.ax_bar.set_ylim(0, 105)
+            self.ax_bar.axhline(
                 THRESHOLD_BUSY, color=ORANGE, linestyle=":", linewidth=1
             )
-            self.ax.axhline(
+            self.ax_bar.axhline(
                 THRESHOLD_HEAVY, color=RED_ALERT, linestyle=":", linewidth=1
             )
+            # Waterfall heatmap (bottom half)
+            self.ax_wf = self.fig.add_subplot(2, 1, 2)
+            self.ax_wf.set_xlabel("Channel")
+            self.ax_wf.set_ylabel("Scan cycle")
+            self.ax_wf.set_yticks([])
+            self.im = None
             self.canvas = FigureCanvasTkAgg(self.fig, master=chart_frame)
             self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
             self.chart_canvas = self.canvas
@@ -307,12 +347,14 @@ class LiveSpectrumPage(ttk.Frame):
         channels = list(range(ch_from, ch_to + 1))
         self.worker = ScanWorker(backend=backend)
         self._channel_stats.clear()
+        self._waterfall_rows.clear()
         self._refresh_table()
         self._refresh_chart()
 
         self._scanning = True
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
+        self.clear_btn.config(state=tk.NORMAL)
         self._log(f"Start Scan: channels {ch_from}-{ch_to} ({mode})")
 
         self.worker.start(channels, samples=100)
@@ -323,9 +365,22 @@ class LiveSpectrumPage(ttk.Frame):
         self.worker.stop()
         self._log("Stop Scan requested")
 
+    def _clear_display(self) -> None:
+        """Clear the live display (table, chart, waterfall) without stopping the scan."""
+        self._channel_stats.clear()
+        self._waterfall_rows.clear()
+        self._refresh_table()
+        self._refresh_chart()
+        self._log("Display cleared")
+
     # ------------------------------------------------------------------ queue polling
     def _poll_queue(self) -> None:
         """Called periodically by tkinter.after() to drain the worker queue."""
+        # Update scan-rate readout every poll.
+        if self.worker is not None:
+            rate = self.worker.scan_rate
+            self.scan_rate_var.set(f"Scan rate: {rate:.1f} ch/s")
+
         if self.worker is None:
             self._after_id = self.after(200, self._poll_queue)
             return
@@ -345,6 +400,7 @@ class LiveSpectrumPage(ttk.Frame):
                 self._scanning = False
                 self.start_btn.config(state=tk.NORMAL)
                 self.stop_btn.config(state=tk.DISABLED)
+                self.scan_rate_var.set("Scan rate: -- ch/s")
                 self._log("Scan complete")
             self.worker = None
         else:
@@ -360,11 +416,25 @@ class LiveSpectrumPage(ttk.Frame):
         elif isinstance(msg, ScanError):
             self._log(f"Error: {msg.message}")
         elif isinstance(msg, ScanComplete):
+            # A full scan cycle finished - add a row to the waterfall.
+            self._add_waterfall_row()
             self._log("Scan complete")
             self._scanning = False
             self.start_btn.config(state=tk.NORMAL)
             self.stop_btn.config(state=tk.DISABLED)
+            self.scan_rate_var.set("Scan rate: -- ch/s")
             self.worker = None
+
+    # ------------------------------------------------------------------ waterfall
+    def _add_waterfall_row(self) -> None:
+        """Build one waterfall row from current channel stats and add to buffer."""
+        row = [0.0] * WATERFALL_COLS
+        for ch, s in self._channel_stats.items():
+            if 0 <= ch < WATERFALL_COLS:
+                row[ch] = s.activity_percent
+        self._waterfall_rows.insert(0, row)  # newest row at top
+        if len(self._waterfall_rows) > WATERFALL_MAX_ROWS:
+            self._waterfall_rows = self._waterfall_rows[:WATERFALL_MAX_ROWS]
 
     # ------------------------------------------------------------------ table / chart
     def _refresh_table(self) -> None:
@@ -390,22 +460,36 @@ class LiveSpectrumPage(ttk.Frame):
     def _refresh_chart(self) -> None:
         if not HAS_MATPLOTLIB or self.chart_canvas is None:
             return
-        self.ax.clear()
-        self.ax.set_xlabel("Channel")
-        self.ax.set_ylabel("Activity %")
-        self.ax.set_ylim(0, 105)
-        self.ax.axhline(
+        # Bar chart
+        self.ax_bar.clear()
+        self.ax_bar.set_ylabel("Activity %")
+        self.ax_bar.set_ylim(0, 105)
+        self.ax_bar.axhline(
             THRESHOLD_BUSY, color=ORANGE, linestyle=":", linewidth=1
         )
-        self.ax.axhline(
+        self.ax_bar.axhline(
             THRESHOLD_HEAVY, color=RED_ALERT, linestyle=":", linewidth=1
         )
         if self._channel_stats:
             chans = sorted(self._channel_stats)
             values = [self._channel_stats[c].activity_percent for c in chans]
             colors = [activity_color(v) for v in values]
-            self.ax.bar(chans, values, color=colors, width=0.7)
+            self.ax_bar.bar(chans, values, color=colors, width=0.7)
+        # Waterfall heatmap
+        self.ax_wf.clear()
+        self.ax_wf.set_xlabel("Channel")
+        self.ax_wf.set_ylabel("Scan cycle (newest at top)")
+        self.ax_wf.set_yticks([])
+        if self._waterfall_rows:
+            # imshow expects [rows, cols]; origin='upper' puts row 0 at top.
+            self.im = self.ax_wf.imshow(
+                self._waterfall_rows,
+                aspect="auto",
+                interpolation="nearest",
+                cmap="RdYlGn_r",
+                vmin=0,
+                vmax=100,
+                origin="upper",
+                extent=[0, WATERFALL_COLS - 1, 0, len(self._waterfall_rows) - 1],
+            )
         self.chart_canvas.draw()
-
-
-
