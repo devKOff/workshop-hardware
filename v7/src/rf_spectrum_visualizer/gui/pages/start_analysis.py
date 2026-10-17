@@ -28,7 +28,6 @@ from rf_spectrum_visualizer.analysis import (
 )
 from rf_spectrum_visualizer.blocker import BlockerManager
 from rf_spectrum_visualizer.gui.theme import (
-    BAR_WIDTH,
     BG,
     CARD,
     GREEN,
@@ -360,7 +359,7 @@ class StartAnalysisPage(ttk.Frame):
             "#9467bd" if c.channel in self.excluded_channels else self._bar_color(c.avg_activity_percent)
             for c in self.analysis_result.channels
         ]
-        self.ax.bar(chans, values, color=colors, width=BAR_WIDTH)
+        self.ax.bar(chans, values, color=colors, width=0.7)
         self._setup_xticks(self.ax)
         peak = max(values) if values else 0.0
         y_max = self._y_scale.compute(peak)

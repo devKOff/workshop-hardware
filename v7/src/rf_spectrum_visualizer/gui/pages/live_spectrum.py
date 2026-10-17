@@ -28,7 +28,6 @@ from tkinter import ttk
 from typing import Optional
 
 from rf_spectrum_visualizer.gui.theme import (
-    BAR_WIDTH,
     BG,
     CARD,
     GREEN,
@@ -54,6 +53,7 @@ from rf_spectrum_visualizer.scan_backend import (
 )
 from rf_spectrum_visualizer.scan_worker import (
     ScanComplete,
+    ScanController,
     ScanError,
     ScanPass,
     ScanWorker,
@@ -89,7 +89,7 @@ class LiveSpectrumPage(ttk.Frame):
 
         self.worker: Optional[ScanWorker] = None
         self._channel_stats: dict[int, ChannelStats] = {}
-        self._scanning = False
+        self._scanning = ScanController()
         self._after_id: Optional[str] = None
 
         # Waterfall buffer: fixed numpy array, rows = scan cycles.
@@ -330,10 +330,9 @@ class LiveSpectrumPage(ttk.Frame):
 
         self.chart_canvas: Optional[object] = None
         if HAS_MATPLOTLIB:
-            # Bar chart (top half) - taller and narrower for slim tall bars
-            self.fig = Figure(figsize=(4, 7), dpi=100)
-            gs = self.fig.add_gridspec(2, 1, height_ratios=[2, 1], hspace=0.35)
-            self.ax_bar = self.fig.add_subplot(gs[0, 0])
+            # Bar chart (top half)
+            self.fig = Figure(figsize=(5, 5), dpi=100)
+            self.ax_bar = self.fig.add_subplot(2, 1, 1)
             self.ax_bar.set_ylabel("Activity %")
             self.ax_bar.set_ylim(0, 105)
             self.ax_bar.axhline(
@@ -344,7 +343,7 @@ class LiveSpectrumPage(ttk.Frame):
             )
             self._bar_rects: Optional[list] = None
             # Waterfall heatmap (bottom half)
-            self.ax_wf = self.fig.add_subplot(gs[1, 0])
+            self.ax_wf = self.fig.add_subplot(2, 1, 2)
             self.ax_wf.set_xlabel("Channel")
             self.ax_wf.set_ylabel("Scan cycle")
             self.ax_wf.set_yticks([])
@@ -400,7 +399,7 @@ class LiveSpectrumPage(ttk.Frame):
 
     # ------------------------------------------------------------------ scan control
     def _start_scan(self) -> None:
-        if self._scanning:
+        if not self._scanning.start_enabled:
             return
         try:
             ch_from = int(self.ch_from.get())
@@ -424,7 +423,7 @@ class LiveSpectrumPage(ttk.Frame):
                 self._log(f"Hardware unavailable, falling back to sim: {exc}")
                 backend = None
                 self.data_source_var.set(
-                    "Data Source: Simulation (hardware unavailable)"
+                    "Data Source: Simulation (hardware fallback)"
                 )
         if backend is None:
             backend = SimBackend()
@@ -474,13 +473,14 @@ class LiveSpectrumPage(ttk.Frame):
             self.im = None
             self.canvas.draw()
 
-        self._scanning = True
+        self._scanning.start()
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self.clear_btn.config(state=tk.NORMAL)
         self._y_scale.set_mode("fixed" if self.y_scale_var.get() == "Fixed 0-100" else "auto")
+        self._log("Scan started")
         self._log(
-            f"Start Scan: channels {ch_from}-{ch_to} ({mode}) "
+            f"Scan: channels {ch_from}-{ch_to} ({mode}) "
             f"window={window_seconds}s interval={interval_ms}ms"
         )
 
@@ -492,10 +492,13 @@ class LiveSpectrumPage(ttk.Frame):
         )
 
     def _stop_scan(self) -> None:
-        if not self._scanning or self.worker is None:
+        if not self._scanning.stop_enabled:
             return
         self.worker.stop()
-        self._log("Stop Scan requested")
+        self._scanning.stop()
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
+        self._log("Scan stopped")
 
     def _clear_display(self) -> None:
         """Clear the live display (table, chart, waterfall) without stopping the scan."""
@@ -562,25 +565,32 @@ class LiveSpectrumPage(ttk.Frame):
                 latest_pass = msg  # keep only the newest
             elif isinstance(msg, ScanError):
                 self._log(f"Error: {msg.message}")
-            elif isinstance(msg, ScanComplete):
-                self._log("Scan complete")
-                self._scanning = False
+                self._scanning.error()
                 self.start_btn.config(state=tk.NORMAL)
                 self.stop_btn.config(state=tk.DISABLED)
                 self.scan_rate_var.set("Scan rate: -- ch/s")
-                self.worker = None
+                if self.worker is not None and not self.worker.running:
+                    self.worker = None
+            elif isinstance(msg, ScanComplete):
+                self._log("Scan complete")
+                self._scanning.complete()
+                self.start_btn.config(state=tk.NORMAL)
+                self.stop_btn.config(state=tk.DISABLED)
+                self.scan_rate_var.set("Scan rate: -- ch/s")
+                if self.worker is not None and not self.worker.running:
+                    self.worker = None
 
         if latest_pass is not None:
             self._handle_scan_pass(latest_pass)
 
-        if not self.worker.running and not drained and latest_pass is None:
+        if self.worker is not None and not self.worker.running and not drained and latest_pass is None:
             # Worker finished and queue empty
-            if self._scanning:
-                self._scanning = False
+            if self._scanning.scanning:
+                self._scanning.complete()
                 self.start_btn.config(state=tk.NORMAL)
                 self.stop_btn.config(state=tk.DISABLED)
                 self.scan_rate_var.set("Scan rate: -- ch/s")
-                self.worker = None
+            self.worker = None
         else:
             self._after_id = self.after(100, self._poll_queue)
 
@@ -787,7 +797,7 @@ class LiveSpectrumPage(ttk.Frame):
             values = [self._channel_stats[c].activity_percent for c in chans]
             colors = [activity_color(v) for v in values]
             self._bar_rects = self.ax_bar.bar(
-                chans, values, color=colors, width=BAR_WIDTH, edgecolor="none"
+                chans, values, color=colors, width=1.0, edgecolor="none"
             )
             self._setup_xticks(self.ax_bar)
             self._apply_y_scale(self.ax_bar, values)
@@ -804,7 +814,7 @@ class LiveSpectrumPage(ttk.Frame):
             ):
                 rect.set_height(val)
                 rect.set_color(col)
-                rect.set_width(BAR_WIDTH)
+                rect.set_width(1.0)
                 rect.set_edgecolor("none")
             self._setup_xticks(self.ax_bar)
             self._apply_y_scale(self.ax_bar, values)

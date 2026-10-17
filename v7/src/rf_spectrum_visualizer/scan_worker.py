@@ -91,6 +91,49 @@ class ScanComplete:
     pass
 
 
+class ScanController:
+    """Small testable state machine for scan start/stop lifecycle.
+
+    The GUI owns the button widgets; this controller owns the boolean
+    state (scanning / not scanning) and answers whether Start or Stop
+    should be enabled.  No tkinter, no pyrf24, no display required.
+    """
+
+    def __init__(self) -> None:
+        self._scanning = False
+
+    @property
+    def scanning(self) -> bool:
+        return self._scanning
+
+    @property
+    def start_enabled(self) -> bool:
+        return not self._scanning
+
+    @property
+    def stop_enabled(self) -> bool:
+        return self._scanning
+
+    def start(self) -> bool:
+        """Attempt to start scanning. Returns True if started, False if already scanning."""
+        if self._scanning:
+            return False
+        self._scanning = True
+        return True
+
+    def stop(self) -> None:
+        """Mark scanning as stopped (user pressed Stop Scan)."""
+        self._scanning = False
+
+    def complete(self) -> None:
+        """Mark scanning as complete (scan finished normally)."""
+        self._scanning = False
+
+    def error(self) -> None:
+        """Mark scanning as errored (radio failure, etc.)."""
+        self._scanning = False
+
+
 class RollingChannelBuffer:
     """Keeps a rolling window of per-channel RPD samples.
 
