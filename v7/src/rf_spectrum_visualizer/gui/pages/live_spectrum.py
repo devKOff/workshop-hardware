@@ -655,7 +655,12 @@ class LiveSpectrumPage(ttk.Frame):
 
     # ------------------------------------------------------------------ waterfall
     def _add_waterfall_row(self, channel_stats: dict[int, ChannelStats]) -> None:
-        """Write one pass into the fixed numpy waterfall array."""
+        """Write one pass into the fixed numpy waterfall array.
+
+        New pass is written to row 0 (top). Existing rows are shifted down
+        by one so the newest scan cycle is always at the top, matching the
+        "newest at top" label with origin="upper".
+        """
         if not HAS_MATPLOTLIB or np is None:
             return
         row = [0.0] * WATERFALL_COLS
@@ -666,7 +671,9 @@ class LiveSpectrumPage(ttk.Frame):
             self._waterfall_data = np.zeros(
                 (WATERFALL_MAX_ROWS, WATERFALL_COLS), dtype=np.float32
             )
-        self._waterfall_data[self._waterfill_row % WATERFALL_MAX_ROWS, :] = row
+        # Shift all existing rows down by 1, write new pass at row 0 (top)
+        self._waterfall_data[1:, :] = self._waterfall_data[:-1, :]
+        self._waterfall_data[0, :] = row
         self._waterfill_row += 1
 
     # ------------------------------------------------------------------ table (in-place updates)

@@ -185,3 +185,78 @@ def test_wifi_bands_remove():
     # Non-Wi-Fi labels should remain
     non_wifi = [t.get_text() for t in ax.texts if not t.removed]
     assert len(non_wifi) == 0  # All texts added by _draw_wifi_bands are Wi-Fi labels
+
+
+# ------------------------------------------------------------------ Waterfall newest-first (A13)
+def test_waterfall_newest_first():
+    """Waterfall _add_waterfall_row must put newest pass at row 0 (top).
+
+    With origin='upper', row 0 is displayed at top. The fix shifts existing
+    rows down by one and writes the new pass into row 0, so newest is always
+    at top.
+    """
+    import numpy as np
+    from rf_spectrum_visualizer.gui.pages.live_spectrum import (
+        LiveSpectrumPage, WATERFALL_MAX_ROWS, WATERFALL_COLS
+    )
+    from rf_spectrum_visualizer.scan_backend import ChannelStats
+
+    class MockPage:
+        _waterfall_data = None
+        _waterfill_row = 0
+
+    page = MockPage()
+
+    # Feed passes 1..5 (each pass has unique activity at channel 100)
+    for pass_num in range(1, 6):
+        stats = {
+            100: ChannelStats(
+                channel=100, freq_mhz=2500.0, samples=1,
+                rpd_true=pass_num, activity_percent=float(pass_num)
+            )
+        }
+        LiveSpectrumPage._add_waterfall_row(page, stats)
+
+    # With fix: newest (pass 5) at row 0 (top), oldest (pass 1) at bottom
+    assert page._waterfall_data[0, 100] == 5.0, (
+        f"Expected newest (5.0) at row 0, got {page._waterfall_data[0, 100]}"
+    )
+    assert page._waterfall_data[4, 100] == 1.0, (
+        f"Expected oldest (1.0) at row 4, got {page._waterfall_data[4, 100]}"
+    )
+
+
+def test_waterfall_wrap_around():
+    """Waterfall wrap-around: more passes than WATERFALL_MAX_ROWS."""
+    import numpy as np
+    from rf_spectrum_visualizer.gui.pages.live_spectrum import (
+        LiveSpectrumPage, WATERFALL_MAX_ROWS, WATERFALL_COLS
+    )
+    from rf_spectrum_visualizer.scan_backend import ChannelStats
+
+    class MockPage:
+        _waterfall_data = None
+        _waterfill_row = 0
+
+    page = MockPage()
+
+    # Feed WATERFALL_MAX_ROWS + 3 passes
+    for pass_num in range(1, WATERFALL_MAX_ROWS + 4):
+        stats = {
+            100: ChannelStats(
+                channel=100, freq_mhz=2500.0, samples=1,
+                rpd_true=pass_num, activity_percent=float(pass_num)
+            )
+        }
+        LiveSpectrumPage._add_waterfall_row(page, stats)
+
+    # After wrap-around, row 0 should have the most recent pass
+    # (WATERFALL_MAX_ROWS + 3)
+    expected_newest = WATERFALL_MAX_ROWS + 3
+    assert page._waterfill_row == WATERFALL_MAX_ROWS + 3
+    assert page._waterfall_data[0, 100] == float(expected_newest), (
+        f"Expected newest ({expected_newest}) at row 0, "
+        f"got {page._waterfall_data[0, 100]}"
+    )
+    # Row 1 should have pass WATERFALL_MAX_ROWS + 2
+    assert page._waterfall_data[1, 100] == float(WATERFALL_MAX_ROWS + 2)
