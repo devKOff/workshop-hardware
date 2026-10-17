@@ -28,6 +28,7 @@ from tkinter import ttk
 from typing import Optional
 
 from rf_spectrum_visualizer.gui.theme import (
+    BAR_WIDTH,
     BG,
     CARD,
     GREEN,
@@ -41,6 +42,7 @@ from rf_spectrum_visualizer.gui.theme import (
     TEXT,
     THRESHOLD_BUSY,
     THRESHOLD_HEAVY,
+    WATERFALL_CMAP,
     YScaleManager,
     activity_color,
     channel_status,
@@ -328,9 +330,10 @@ class LiveSpectrumPage(ttk.Frame):
 
         self.chart_canvas: Optional[object] = None
         if HAS_MATPLOTLIB:
-            # Bar chart (top half)
-            self.fig = Figure(figsize=(5, 5), dpi=100)
-            self.ax_bar = self.fig.add_subplot(2, 1, 1)
+            # Bar chart (top half) - taller and narrower for slim tall bars
+            self.fig = Figure(figsize=(4, 7), dpi=100)
+            gs = self.fig.add_gridspec(2, 1, height_ratios=[2, 1], hspace=0.35)
+            self.ax_bar = self.fig.add_subplot(gs[0, 0])
             self.ax_bar.set_ylabel("Activity %")
             self.ax_bar.set_ylim(0, 105)
             self.ax_bar.axhline(
@@ -341,7 +344,7 @@ class LiveSpectrumPage(ttk.Frame):
             )
             self._bar_rects: Optional[list] = None
             # Waterfall heatmap (bottom half)
-            self.ax_wf = self.fig.add_subplot(2, 1, 2)
+            self.ax_wf = self.fig.add_subplot(gs[1, 0])
             self.ax_wf.set_xlabel("Channel")
             self.ax_wf.set_ylabel("Scan cycle")
             self.ax_wf.set_yticks([])
@@ -784,7 +787,7 @@ class LiveSpectrumPage(ttk.Frame):
             values = [self._channel_stats[c].activity_percent for c in chans]
             colors = [activity_color(v) for v in values]
             self._bar_rects = self.ax_bar.bar(
-                chans, values, color=colors, width=1.0, edgecolor="none"
+                chans, values, color=colors, width=BAR_WIDTH, edgecolor="none"
             )
             self._setup_xticks(self.ax_bar)
             self._apply_y_scale(self.ax_bar, values)
@@ -801,7 +804,7 @@ class LiveSpectrumPage(ttk.Frame):
             ):
                 rect.set_height(val)
                 rect.set_color(col)
-                rect.set_width(1.0)
+                rect.set_width(BAR_WIDTH)
                 rect.set_edgecolor("none")
             self._setup_xticks(self.ax_bar)
             self._apply_y_scale(self.ax_bar, values)
@@ -824,7 +827,7 @@ class LiveSpectrumPage(ttk.Frame):
                     self._waterfall_data[:rows_to_show, :],
                     aspect="auto",
                     interpolation="nearest",
-                    cmap="RdYlGn_r",
+                    cmap=WATERFALL_CMAP,
                     vmin=0,
                     vmax=wf_vmax,
                     origin="upper",
