@@ -7,6 +7,19 @@ explicitly requested (e.g. when the user selects hardware mode), so Windows
 development is never affected by the absent driver. Genuine readings are
 measured; power is resolved consistently as P = V x I. Never fabricates,
 caches, or reuses stale values.
+
+Calibration
+-----------
+The INA219 calibration register is computed from the shunt resistance and
+maximum expected current:
+
+    Cal = 4096 / (Max_Current × R_shunt)
+    Current_LSB = Max_Current / 32767
+    Power_LSB   = 20 × Current_LSB
+
+For the reference hardware (6 V, 3 W panel, 33 Ω load):
+    Max current ≈ 3 W / 6 V = 0.5 A (use 1.0 A headroom)
+    Shunt       = 0.1 Ω  → at 0.5 A, shunt voltage = 50 mV (within ±81.92 mV)
 """
 
 from __future__ import annotations
@@ -17,6 +30,8 @@ from solar_monitor.backends.interface import BackendError, SensorBackend, Sensor
 
 DEFAULT_I2C_BUS = 1
 DEFAULT_I2C_ADDRESS = 0x40
+DEFAULT_SHUNT_OHM = 0.1
+DEFAULT_MAX_CURRENT_A = 1.0
 
 
 class INA219HardwareBackend(SensorBackend):
@@ -26,13 +41,23 @@ class INA219HardwareBackend(SensorBackend):
     attempt initialisation. Until probed, :meth:`is_available` returns False.
     """
 
-    def __init__(self, *, i2c_bus=DEFAULT_I2C_BUS, i2c_address=DEFAULT_I2C_ADDRESS):
+    def __init__(
+        self,
+        *,
+        i2c_bus=DEFAULT_I2C_BUS,
+        i2c_address=DEFAULT_I2C_ADDRESS,
+        shunt_ohm=DEFAULT_SHUNT_OHM,
+        max_current_a=DEFAULT_MAX_CURRENT_A,
+    ):
         self._i2c_bus = i2c_bus
         self._i2c_address = i2c_address
+        self._shunt_ohm = float(shunt_ohm)
+        self._max_current_a = float(max_current_a)
         self._sensor = None
         self._init_error = "not probed"
         self._probed = False
         self._samples = 0
+        self._current_lsb_a = None
 
     # -- backend interface -------------------------------------------------
     @property
@@ -51,6 +76,9 @@ class INA219HardwareBackend(SensorBackend):
             "probed": self._probed,
             "i2c_bus": self._i2c_bus,
             "i2c_address": hex(self._i2c_address),
+            "shunt_ohm": self._shunt_ohm,
+            "max_current_a": self._max_current_a,
+            "current_lsb_a": self._current_lsb_a,
             "init_error": self._init_error,
             "samples": self._samples,
             "library": "adafruit-circuitpython-ina219",
@@ -70,7 +98,8 @@ class INA219HardwareBackend(SensorBackend):
         if not self.is_available():
             self._samples += 1
             raise BackendError(
-                "INA219 hardware unavailable: " + (self._init_error or "not initialised")
+                "INA219 hardware unavailable: "
+                + (self._init_error or "not initialised")
             )
 
         try:
@@ -103,6 +132,20 @@ class INA219HardwareBackend(SensorBackend):
             from adafruit_ina219 import INA219  # noqa: PLC0415
 
             self._sensor = INA219(i2c_bus=self._i2c_bus, addr=self._i2c_address)
+
+            # Configure calibration for the shunt and max current.
+            # Current_LSB = Max_Current / 32767 gives full-scale resolution.
+            current_lsb_a = self._max_current_a / 32767.0
+            try:
+                self._sensor.set_calibration(current_lsb_a, self._shunt_ohm)
+            except AttributeError:
+                # Older library versions may not expose set_calibration;
+                # the library uses factory defaults. Continue with a note.
+                self._init_error = (
+                    self._init_error
+                    + "; set_calibration not available, using factory defaults"
+                )
+            self._current_lsb_a = current_lsb_a
         except Exception as exc:  # noqa: BLE001 - hardware may be absent
             self._sensor = None
             self._init_error = f"{type(exc).__name__}: {exc}"
