@@ -1,32 +1,11 @@
-"""Measurement model: a validated, storable snapshot of solar performance."""
+"""Measurement model — re-exports from solar_monitor.core.measurement."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from solar_monitor.core.measurement import (  # noqa: E402
+    Measurement,
+    now_iso,
+    to_display_row,
+)
 
-
-@dataclass(frozen=True)
-class Measurement:
-    timestamp: str
-    voltage_v: float
-    current_ma: float
-    current_a: float
-    power_w: float
-    sensor_mode: str
-    sensor_status: str
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def to_display_row(m: Measurement) -> tuple:
-    return (
-        m.timestamp,
-        m.voltage_v,
-        m.current_ma,
-        m.current_a,
-        m.power_w,
-        m.sensor_mode,
-        m.sensor_status,
-    )
+__all__ = ["Measurement", "now_iso", "to_display_row"]
