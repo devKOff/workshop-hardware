@@ -6,6 +6,6 @@ pytest==9.1.1
 pytest-cov==7.1.0
 pytest-mock==3.16.0
 
-# Raspberry Pi INA219 driver (hardware mode on Pi only).
+# Raspberry Pi I²C for the INA219 hardware driver (Pi only).
 # Not installed on Windows; the simulated sensor is used instead.
-# ina219==1.0.1
+smbus2==0.4.3
