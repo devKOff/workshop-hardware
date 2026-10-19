@@ -1,8 +1,8 @@
 """Tests for src/solar_monitor/core/measurement_engine.
 
-Runs under the offscreen Qt platform (conftest). The engine drives a QThread
-worker; signals are pumped with QTest.qWait (processes events while waiting
-on real time).
+Runs under the offscreen Qt platform (conftest). The engine drives a
+threading.Thread worker; the GUI-thread poller is simulated by calling
+engine.poll() and pumping events with QTest.qWait.
 """
 
 from __future__ import annotations
@@ -75,6 +75,27 @@ def _wait_for(cond, timeout_ms=3000):
     return cond()
 
 
+def _pump(engine):
+    """Run one GUI-thread poll pass (as the main window's QTimer would)."""
+    engine.poll()
+    _QAPP.processEvents()
+
+
+def _wait_for_engine(engine, cond, timeout_ms=3000):
+    deadline = time.time() + timeout_ms / 1000.0
+    while time.time() < deadline:
+        _pump(engine)
+        if cond():
+            return True
+    return cond()
+
+
+def _poll(engine):
+    """Run one GUI-thread poll pass (as the main window's QTimer would)."""
+    engine.poll()
+    _QAPP.processEvents()
+
+
 def test_engine_start_stop_lifecycle(tmp_path):
     backend = _FakeBackend([_reading(5.0, 0.1, 0.5)])
     db = str(tmp_path / "engine.db")
@@ -84,11 +105,11 @@ def test_engine_start_stop_lifecycle(tmp_path):
 
     started = []
     stopped = []
-    engine.started.connect(lambda sid: started.append(sid))
-    engine.stopped.connect(lambda: stopped.append(True))
+    engine.on_started = lambda sid: started.append(sid)
+    engine.on_stopped = lambda: stopped.append(True)
 
     engine.start()
-    assert _wait_for(lambda: len(started) == 1)
+    _wait_for_engine(engine, lambda: len(started) == 1)
     assert engine.state == EngineState.RUNNING
 
     # Repeated start must not duplicate the worker.
@@ -98,7 +119,7 @@ def test_engine_start_stop_lifecycle(tmp_path):
     assert len(started) == 1
 
     engine.stop()
-    assert _wait_for(lambda: len(stopped) == 1)
+    _wait_for_engine(engine, lambda: len(stopped) == 1)
     assert engine.state == EngineState.IDLE
 
 
@@ -114,15 +135,15 @@ def test_engine_pause_resume(tmp_path):
     db = str(tmp_path / "engine.db")
     engine = MeasurementEngine(backend, db_path=db)
     engine.start()
-    assert _wait_for(lambda: engine.state == EngineState.RUNNING)
+    _wait_for_engine(engine, lambda: engine.state == EngineState.RUNNING)
 
     paused = []
     resumed = []
-    engine.paused.connect(lambda: paused.append(True))
-    engine.resumed.connect(lambda: resumed.append(True))
+    engine.on_paused = lambda: paused.append(True)
+    engine.on_resumed = lambda: resumed.append(True)
 
     engine.pause()
-    assert _wait_for(lambda: engine.state == EngineState.PAUSED)
+    _wait_for_engine(engine, lambda: engine.state == EngineState.PAUSED)
     assert len(paused) == 1
 
     engine.pause()  # pause while paused is a no-op
@@ -130,7 +151,7 @@ def test_engine_pause_resume(tmp_path):
     assert len(paused) == 1
 
     engine.resume()
-    assert _wait_for(lambda: engine.state == EngineState.RUNNING)
+    _wait_for_engine(engine, lambda: engine.state == EngineState.RUNNING)
     assert len(resumed) == 1
 
     engine.resume()  # resume while running is a no-op
@@ -138,7 +159,7 @@ def test_engine_pause_resume(tmp_path):
     assert len(resumed) == 1
 
     engine.stop()
-    assert _wait_for(lambda: engine.state == EngineState.IDLE)
+    _wait_for_engine(engine, lambda: engine.state == EngineState.IDLE)
 
 
 def test_engine_measurement_and_energy_known_sequence(tmp_path):
@@ -153,10 +174,10 @@ def test_engine_measurement_and_energy_known_sequence(tmp_path):
     engine.set_sampling_interval(0.05)
 
     taken = []
-    engine.measurement_taken.connect(lambda m, inc, tot: taken.append((m, inc, tot)))
+    engine.on_measurement = lambda m, inc, tot: taken.append((m, inc, tot))
     engine.start()
 
-    assert _wait_for(lambda: len(taken) >= 2, timeout_ms=3000)
+    assert _wait_for_engine(engine, lambda: len(taken) >= 2, timeout_ms=3000)
     # Trapezoid uses ACTUAL elapsed time between samples (not interval_s).
     from datetime import datetime
     t0 = datetime.fromisoformat(taken[0][0].timestamp)
@@ -189,11 +210,11 @@ def test_engine_invalid_reading_never_accumulates_energy(tmp_path):
 
     taken = []
     errors = []
-    engine.measurement_taken.connect(lambda m, inc, tot: taken.append((m, inc, tot)))
-    engine.error_occurred.connect(lambda c, msg: errors.append((c, msg)))
+    engine.on_measurement = lambda m, inc, tot: taken.append((m, inc, tot))
+    engine.on_error = lambda c, msg: errors.append((c, msg))
     engine.start()
 
-    assert _wait_for(lambda: len(taken) >= 3 and len(errors) >= 1, timeout_ms=4000)
+    assert _wait_for_engine(engine, lambda: len(taken) >= 3 and len(errors) >= 1, timeout_ms=4000)
 
     # First valid: no increment. Second valid: increment = 0.5 * actual_delta / 3600.
     assert taken[0][1] is None
@@ -232,10 +253,10 @@ def test_engine_hardware_backend_unavailable_no_crash(tmp_path):
     engine.set_sampling_interval(0.05)
 
     backend_errs = []
-    engine.backend_error.connect(lambda msg: backend_errs.append(msg))
+    engine.on_backend_error = lambda msg: backend_errs.append(msg)
 
     engine.start()
-    assert _wait_for(lambda: len(backend_errs) >= 1, timeout_ms=3000)
+    assert _wait_for_engine(engine, lambda: len(backend_errs) >= 1, timeout_ms=3000)
     assert engine.state == EngineState.RUNNING
     # Engine stays running on hardware mode even though reads fail -- it never
     # silently switches to simulation.
@@ -264,9 +285,9 @@ def test_engine_shutdown_prevents_restart(tmp_path):
     db = str(tmp_path / "shutdown.db")
     engine = MeasurementEngine(backend, db_path=db)
     engine.start()
-    assert _wait_for(lambda: engine.state == EngineState.RUNNING)
+    _wait_for_engine(engine, lambda: engine.state == EngineState.RUNNING)
     engine.shutdown()
-    assert _wait_for(lambda: engine.state == EngineState.IDLE)
+    _wait_for_engine(engine, lambda: engine.state == EngineState.IDLE)
     assert engine._shutting_down is True
     engine.start()  # must be no-op after shutdown
     QTest.qWait(100)

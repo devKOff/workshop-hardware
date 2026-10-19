@@ -6,38 +6,42 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from ...core.measurement_engine import EngineState
+from ..theme import ACCENT_GREEN, ACCENT_NAVY, OK_TEXT, TEXT_SECONDARY, WARN_TEXT
 from .base import PageBase
-from ..theme import ACCENT_GREEN, ACCENT_NAVY, TEXT_SECONDARY
 
 
 class DashboardPage(PageBase):
-    def __init__(self, parent=None):
+    def __init__(self, context, main_window, parent=None):
+        self._ctx = context
         super().__init__(
             "Dashboard",
             "Live voltage, current, power, and accumulated energy with measurement status.",
             parent,
         )
+        self._latest = None
+        self._total_energy_wh = 0.0
         self._build()
 
-    def _populate_content(self):
+    def _build(self):
+        super()._build()
         # Metric cards row
         metrics = QGridLayout()
         metrics.setSpacing(14)
 
-        self.voltage_label, self.voltage_value = self._metric_card("Voltage", "-- V", ACCENT_NAVY)
-        self.current_label, self.current_value = self._metric_card("Current", "-- A", ACCENT_NAVY)
-        self.power_label, self.power_value = self._metric_card("Power", "-- W", ACCENT_NAVY)
-        self.energy_label, self.energy_value = self._metric_card("Energy", "-- Wh", ACCENT_GREEN)
+        self.voltage_card, self.voltage_value = self._metric_card("Voltage", "-- V", ACCENT_NAVY)
+        self.current_card, self.current_value = self._metric_card("Current", "-- A", ACCENT_NAVY)
+        self.power_card, self.power_value = self._metric_card("Power", "-- W", ACCENT_NAVY)
+        self.energy_card, self.energy_value = self._metric_card("Energy", "-- Wh", ACCENT_GREEN)
 
-        metrics.addWidget(self.voltage_label, 0, 0)
-        metrics.addWidget(self.current_label, 0, 1)
-        metrics.addWidget(self.power_label, 0, 2)
-        metrics.addWidget(self.energy_label, 0, 3)
+        metrics.addWidget(self.voltage_card, 0, 0)
+        metrics.addWidget(self.current_card, 0, 1)
+        metrics.addWidget(self.power_card, 0, 2)
+        metrics.addWidget(self.energy_card, 0, 3)
         metrics.setColumnStretch(4, 1)
         self.add_layout(metrics)
 
@@ -54,9 +58,9 @@ class DashboardPage(PageBase):
         status.addWidget(self.sensor_label)
         status.addStretch()
 
-        sim_note = QLabel("Simulation mode — data is simulated, not hardware readings.")
-        sim_note.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
-        status.addWidget(sim_note)
+        self.sim_note = QLabel("Simulation mode — data is simulated, not hardware readings.")
+        self.sim_note.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        status.addWidget(self.sim_note)
 
         self.add_layout(status)
 
@@ -65,11 +69,10 @@ class DashboardPage(PageBase):
         graph_box.setObjectName("card")
         gv = QVBoxLayout(graph_box)
         gv.setContentsMargins(14, 14, 14, 14)
-        from PySide6.QtWidgets import QLabel as _QLabel
-        gh = _QLabel("Live power graph")
+        gh = QLabel("Live power graph")
         gh.setStyleSheet("font-weight: 700; color: #111827;")
         gv.addWidget(gh)
-        self.graph_placeholder = _QLabel("Graph area (compact live power graph).")
+        self.graph_placeholder = QLabel("Compact live power graph (graph rendering in Phase 7).")
         self.graph_placeholder.setStyleSheet(
             f"color: {TEXT_SECONDARY}; font-size: 12px; padding-top: 8px;"
         )
@@ -82,15 +85,16 @@ class DashboardPage(PageBase):
         summary_box.setObjectName("card")
         sv = QVBoxLayout(summary_box)
         sv.setContentsMargins(14, 14, 14, 14)
-        sh = _QLabel("Measurement summary")
+        sh = QLabel("Measurement summary")
         sh.setStyleSheet("font-weight: 700; color: #111827;")
         sv.addWidget(sh)
-        self.summary_label = _QLabel("No measurements yet.")
+        self.summary_label = QLabel("No measurements yet.")
         self.summary_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; padding-top: 6px;")
         sv.addWidget(self.summary_label)
         self.add_widget(summary_box)
 
         self.add_stretch()
+        self._refresh_status()
 
     def _metric_card(self, title: str, value: str, accent: str):
         card = QWidget()
@@ -107,25 +111,59 @@ class DashboardPage(PageBase):
         card.setFixedHeight(110)
         return card, v
 
-    def add_layout(self, layout) -> None:
+    def add_layout(self, layout):
         wrapper = QWidget()
         wrapper.setLayout(layout)
         self.content_layout.addWidget(wrapper)
 
-    # --- Public update API (wired in later phases) -------------------------
-    def set_readings(self, voltage_v: float | None, current_a: float | None,
-                     power_w: float | None, energy_wh: float | None) -> None:
-        def fmt(v, unit):
-            return f"{v:.2f} {unit}" if v is not None else f"-- {unit}"
-        self.voltage_value.setText(fmt(voltage_v, "V"))
-        self.current_value.setText(fmt(current_a, "A"))
-        self.power_value.setText(fmt(power_w, "W"))
-        self.energy_value.setText(fmt(energy_wh, "Wh"))
+    def _refresh_status(self):
+        engine = self._ctx.engine
+        backend = engine.backend
+        mode = "Simulation" if backend.mode == "simulated" else "Hardware"
+        self.mode_label.setText(f"Backend: {mode}")
+        self.sim_note.setVisible(backend.mode == "simulated")
+        avail = backend.is_available()
+        self.sensor_label.setText(
+            f"Sensor: {'connected' if avail else 'unavailable'}"
+        )
+        self.sensor_label.setStyleSheet(
+            f"font-weight: 700; color: {'#15803d' if avail else '#991b1b'};"
+        )
+        st = engine.state.value.capitalize()
+        self.status_label.setText(f"Measurement status: {st}")
 
-    def set_status(self, mode: str, status: str, sensor: str) -> None:
+    def on_measurement(self, m, increment_wh, total_energy_wh):
+        self._latest = m
+        self._total_energy_wh = total_energy_wh if total_energy_wh is not None else 0.0
+        self.voltage_value.setText(f"{m.voltage_v:.2f} V")
+        self.current_value.setText(f"{m.current_a:.2f} A")
+        self.power_value.setText(f"{m.power_w:.2f} W")
+        self.energy_value.setText(f"{self._total_energy_wh:.2f} Wh")
+        self.status_label.setText(
+            f"Measurement status: {m.sensor_status}  ({self._ctx.engine.state.value})"
+        )
+        self.summary_label.setText(
+            f"Last sample: {m.timestamp}  ·  "
+            f"{m.voltage_v:.2f} V, {m.current_a:.2f} A, {m.power_w:.2f} W  ·  "
+            f"Energy: {self._total_energy_wh:.2f} Wh  ·  Mode: {m.sensor_mode}"
+        )
+
+    def on_backend_error(self, message: str):
+        self.status_label.setText(f"Measurement status: error — {message}")
+        self.summary_label.setText(
+            f"Backend error: {message}. Check System Information for diagnostics."
+        )
+
+    def set_readings(self, voltage_v, current_a, power_w, energy_wh):
+        self.voltage_value.setText(f"{voltage_v:.2f} V" if voltage_v is not None else "-- V")
+        self.current_value.setText(f"{current_a:.2f} A" if current_a is not None else "-- A")
+        self.power_value.setText(f"{power_w:.2f} W" if power_w is not None else "-- W")
+        self.energy_value.setText(f"{energy_wh:.2f} Wh" if energy_wh is not None else "-- Wh")
+
+    def set_status(self, mode: str, status: str, sensor: str):
         self.mode_label.setText(f"Backend: {mode}")
         self.status_label.setText(f"Measurement status: {status}")
         self.sensor_label.setText(f"Sensor: {sensor}")
 
-    def set_summary(self, text: str) -> None:
+    def set_summary(self, text: str):
         self.summary_label.setText(text)

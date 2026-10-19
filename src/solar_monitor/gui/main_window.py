@@ -1,24 +1,34 @@
 """Main window: dark charcoal title bar, navy-and-green accents, white workspace,
-left sidebar navigation, six stacked pages, bottom APP OPTIONS and context action."""
+left sidebar navigation, six stacked pages, bottom APP OPTIONS and context action.
+
+Wires the measurement engine, database, settings, and backends into the six
+functional pages. Owns the GUI-thread poll timer that drains the engine queue.
+"""
 
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from solar_monitor.backends import INA219HardwareBackend, SimulatedSensor
+from solar_monitor.database.connection import open_db
+from solar_monitor.database.paths import default_db_path, ensure_data_dir
+from solar_monitor.database.settings import SettingsService
 from .navigation import (
     NAV_CSV_REPORTS,
     NAV_DASHBOARD,
@@ -62,6 +72,33 @@ def enable_dark_title_bar(window) -> None:
         pass
 
 
+class AppContext:
+    """Shared application resources handed to each page."""
+
+    def __init__(self):
+        ensure_data_dir()
+        self.db_path = default_db_path()
+        self.conn = open_db(self.db_path)
+        self.settings = SettingsService(self.conn)
+        self.sim_backend = SimulatedSensor()
+        self.hw_backend = INA219HardwareBackend()  # probed lazily, never at import
+        # Default to the simulation backend on Windows (safe without hardware).
+        self.backend = self.sim_backend
+        from solar_monitor.core.measurement_engine import MeasurementEngine
+
+        self.engine = MeasurementEngine(self.backend, db_path=self.db_path)
+
+    def close(self):
+        try:
+            self.engine.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self.conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -69,15 +106,30 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(980, 640)
         self.resize(1200, 760)
 
+        self.ctx = AppContext()
         self._pages = {}
         self._context_action = None
+
+        # GUI-thread poll timer owned by the main window (lives with the app,
+        # never garbage-collected per page), drains the engine queue.
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(50)
+        self._poll_timer.setSingleShot(False)
+        self._poll_timer.timeout.connect(self._poll_engine)
+        self._poll_timer.start()
+
         self._build_ui()
 
-        # Apply stylesheet after widgets are created so object names resolve.
         self.setStyleSheet(stylesheet())
         enable_dark_title_bar(self)
 
-        # Show dashboard by default
+        # Wire engine callbacks (invoked on the GUI thread by the poll timer).
+        engine = self.ctx.engine
+        engine.on_measurement = self._on_measurement_taken
+        engine.on_backend_error = self._on_backend_error
+        engine.on_status_changed = self.statusBar().showMessage
+
+        self.nav.set_active(NAV_DASHBOARD)
         self._on_nav(NAV_DASHBOARD)
 
     def _build_ui(self) -> None:
@@ -87,7 +139,6 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # --- Body: sidebar + stacked pages ----------------------------------
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
@@ -102,7 +153,6 @@ class MainWindow(QMainWindow):
 
         root.addLayout(body, stretch=1)
 
-        # --- Footer: APP OPTIONS (bottom-left) + context action (bottom-right)
         footer = QFrame()
         footer.setObjectName("statusBar")
         footer.setFixedHeight(40)
@@ -131,37 +181,44 @@ class MainWindow(QMainWindow):
         if key not in PAGE_CLASSES:
             return
         if key not in self._pages:
-            self._pages[key] = PAGE_CLASSES[key](self)
+            self._pages[key] = PAGE_CLASSES[key](self.ctx, self)
             self.stack.addWidget(self._pages[key])
         self.stack.setCurrentWidget(self._pages[key])
         self._update_context_action(key)
 
     def _update_context_action(self, key: str) -> None:
+        ca = self.context_action
         if key == NAV_LIVE_MONITORING:
-            self.context_action.setText("Start monitoring")
-            self.context_action.setObjectName("contextAction")
-            self.context_action.setVisible(True)
+            ca.setText("Start monitoring")
+            ca.setVisible(True)
         elif key == NAV_CSV_REPORTS:
-            self.context_action.setText("Export CSV…")
-            self.context_action.setVisible(True)
+            ca.setText("Export CSV…")
+            ca.setVisible(True)
         else:
-            self.context_action.setVisible(False)
-        self.context_action.style().unpolish(self.context_action)
-        self.context_action.style().polish(self.context_action)
+            ca.setVisible(False)
+        ca.style().unpolish(ca)
+        ca.style().polish(ca)
+
+    # --- Poll ---------------------------------------------------------------
+    def _poll_engine(self):
+        self.ctx.engine.poll()
 
     # --- Actions ------------------------------------------------------------
     def _on_app_options(self) -> None:
         self.nav.appOptionsRequested.emit()
-        self._set_context("App options opened.")
+        self.statusBar().showMessage("App options opened.", 4000)
 
     def _on_context_action(self) -> None:
         key = self._current_key()
         if key == NAV_LIVE_MONITORING:
-            self._set_context("Monitoring started (simulation).")
+            page = self._pages.get(key)
+            if page:
+                page.toggle_monitoring()
         elif key == NAV_CSV_REPORTS:
-            self._set_context("CSV export opened.")
-        else:
-            self._set_context("Action performed.")
+            page = self._pages.get(key)
+            if page:
+                page.do_export()
+        self.statusBar().showMessage("Action performed.", 3000)
 
     def _current_key(self) -> str:
         for key, page in self._pages.items():
@@ -169,8 +226,20 @@ class MainWindow(QMainWindow):
                 return key
         return NAV_DASHBOARD
 
-    def _set_context(self, message: str) -> None:
-        self.statusBar().showMessage(message, 4000)
+    # --- Engine callback handlers ------------------------------------------
+    def _on_measurement_taken(self, m, increment_wh, total_energy_wh):
+        page = self._pages.get(NAV_DASHBOARD)
+        if page is not None:
+            page.on_measurement(m, increment_wh, total_energy_wh)
+
+    def _on_backend_error(self, message: str):
+        page = self._pages.get(NAV_DASHBOARD)
+        if page is not None:
+            page.on_backend_error(message)
+
+    def closeEvent(self, event):
+        self.ctx.close()
+        super().closeEvent(event)
 
 
 def run_gui() -> int:

@@ -104,3 +104,35 @@ def list_sessions(conn, limit=50):
 
 def session_exists(conn, session_id):
     return conn.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,)).fetchone() is not None
+
+
+def list_measurements(conn, session_id=None, start=None, end=None, limit=1000):
+    """Return measurement rows, newest first, optionally filtered by session
+    and/or timestamp range (inclusive ISO-8601 strings)."""
+    sql = """
+        SELECT m.id, m.session_id, m.timestamp, m.voltage_v, m.current_ma,
+               m.current_a, m.power_w, m.energy_wh_increment, m.daily_energy_wh,
+               m.total_energy_wh, m.sensor_mode, m.sensor_status
+        FROM measurements m
+    """
+    params = []
+    clauses = []
+    if session_id is not None:
+        clauses.append("m.session_id = ?")
+        params.append(session_id)
+    if start is not None:
+        clauses.append("m.timestamp >= ?")
+        params.append(start)
+    if end is not None:
+        clauses.append("m.timestamp <= ?")
+        params.append(end)
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY m.timestamp DESC LIMIT ?"
+    params.append(limit)
+    return conn.execute(sql, params).fetchall()
+
+
+def list_sessions_with_counts(conn, limit=50):
+    return list_sessions(conn, limit=limit)
+

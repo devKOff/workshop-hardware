@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -10,12 +11,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .base import PageBase
+from ...core.measurement_engine import EngineState
 from ..theme import ACCENT_GREEN, ACCENT_NAVY, TEXT_SECONDARY
+from .base import PageBase
 
 
 class LiveMonitoringPage(PageBase):
-    def __init__(self, parent=None):
+    def __init__(self, context, main_window, parent=None):
+        self._ctx = context
+        self._mw = main_window
         super().__init__(
             "Live Monitoring",
             "Real-time voltage, current, and power graphs with sampling controls.",
@@ -23,7 +27,8 @@ class LiveMonitoringPage(PageBase):
         )
         self._build()
 
-    def _populate_content(self):
+    def _build(self):
+        super()._build()
         # Controls row
         controls = QHBoxLayout()
         controls.setSpacing(10)
@@ -37,18 +42,24 @@ class LiveMonitoringPage(PageBase):
         self.btn_clear = QPushButton("Clear")
         self.btn_clear.setObjectName("ghost")
 
+        self.btn_start.clicked.connect(self._start)
+        self.btn_stop.clicked.connect(self._stop)
+        self.btn_pause.clicked.connect(self._pause)
+        self.btn_resume.clicked.connect(self._resume)
+        self.btn_clear.clicked.connect(self._clear)
+
         for btn in (self.btn_start, self.btn_stop, self.btn_pause,
                     self.btn_resume, self.btn_clear):
             controls.addWidget(btn)
 
         controls.addSpacing(20)
         controls.addWidget(QLabel("Sampling interval:"))
-        from PySide6.QtWidgets import QDoubleSpinBox
         self.interval_spin = QDoubleSpinBox()
         self.interval_spin.setRange(0.1, 3600.0)
-        self.interval_spin.setValue(1.0)
+        self.interval_spin.setValue(self._ctx.engine.sampling_interval_s)
         self.interval_spin.setSuffix(" s")
         self.interval_spin.setDecimals(2)
+        self.interval_spin.valueChanged.connect(self._interval_changed)
         controls.addWidget(self.interval_spin)
         controls.addStretch()
 
@@ -64,7 +75,7 @@ class LiveMonitoringPage(PageBase):
         gv.addWidget(gh)
         self.graph_note = QLabel(
             "Voltage, current, and power graphs with bounded data buffers "
-            "(background worker). Graph area rendered here."
+            "(background worker). Graph rendering in Phase 7."
         )
         self.graph_note.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; padding-top: 8px;")
         self.graph_note.setFixedHeight(150)
@@ -83,8 +94,58 @@ class LiveMonitoringPage(PageBase):
         self.add_layout(status)
 
         self.add_stretch()
+        self._refresh_ui()
 
-    def add_layout(self, layout) -> None:
+    def add_layout(self, layout):
         wrapper = QWidget()
         wrapper.setLayout(layout)
         self.content_layout.addWidget(wrapper)
+
+    def _refresh_ui(self):
+        engine = self._ctx.engine
+        st = engine.state
+        running = st == EngineState.RUNNING
+        paused = st == EngineState.PAUSED
+        self.btn_start.setEnabled(st in (EngineState.IDLE, EngineState.STOPPED))
+        self.btn_stop.setEnabled(running or paused)
+        self.btn_pause.setEnabled(running)
+        self.btn_resume.setEnabled(paused)
+        self.btn_clear.setEnabled(st != EngineState.RUNNING)
+        self.interval_spin.setEnabled(st != EngineState.RUNNING)
+        self.status_label.setText(f"Sampling status: {st.value}")
+        self.status_label.setStyleSheet(
+            f"font-weight: 700; color: "
+            f"{'#15803d' if running else ('#b45309' if paused else '#1f3a5f')};"
+        )
+
+    def _start(self):
+        self._ctx.engine.start()
+        self._refresh_ui()
+
+    def _stop(self):
+        self._ctx.engine.stop()
+        self._refresh_ui()
+
+    def _pause(self):
+        self._ctx.engine.pause()
+        self._refresh_ui()
+
+    def _resume(self):
+        self._ctx.engine.resume()
+        self._refresh_ui()
+
+    def _clear(self):
+        self.latest_label.setText("Latest measurement: --")
+        self.graph_note.setText("Graphs cleared.")
+
+    def toggle_monitoring(self):
+        engine = self._ctx.engine
+        if engine.state in (EngineState.IDLE, EngineState.STOPPED):
+            self._start()
+        elif engine.state == EngineState.RUNNING:
+            self._stop()
+        else:
+            self._start()
+
+    def _interval_changed(self, value):
+        self._ctx.engine.set_sampling_interval(value)

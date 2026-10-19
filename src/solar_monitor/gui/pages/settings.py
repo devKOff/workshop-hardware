@@ -1,8 +1,9 @@
-"""Settings page: sampling interval and operating mode."""
+"""Settings page: sampling interval and operating mode, persisted across restarts."""
 
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
@@ -13,12 +14,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ...core.measurement_engine import MeasurementEngine
+from ...database.settings import SettingsError
+from ..theme import ACCENT_GREEN, ACCENT_NAVY, TEXT_SECONDARY
 from .base import PageBase
-from ..theme import ACCENT_NAVY, TEXT_SECONDARY
 
 
 class SettingsPage(PageBase):
-    def __init__(self, parent=None):
+    def __init__(self, context, main_window, parent=None):
+        self._ctx = context
         super().__init__(
             "Settings",
             "Configure the sampling interval and operating mode. Settings persist across restarts.",
@@ -26,7 +30,8 @@ class SettingsPage(PageBase):
         )
         self._build()
 
-    def _populate_content(self):
+    def _build(self):
+        super()._build()
         # Sampling interval group
         interval_group = QGroupBox("Sampling")
         interval_group.setStyleSheet(
@@ -37,11 +42,11 @@ class SettingsPage(PageBase):
         form = QFormLayout(interval_group)
         self.interval_spin = QDoubleSpinBox()
         self.interval_spin.setRange(0.1, 3600.0)
-        self.interval_spin.setValue(1.0)
+        self.interval_spin.setValue(self._ctx.engine.sampling_interval_s)
         self.interval_spin.setSuffix(" s")
         self.interval_spin.setDecimals(2)
         form.addRow("Sampling interval:", self.interval_spin)
-        hint = QLabel("Time between consecutive measurements.")
+        hint = QLabel("Time between consecutive measurements (0.1 s to 3600 s).")
         hint.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
         form.addRow("", hint)
         self.add_widget(interval_group)
@@ -54,14 +59,23 @@ class SettingsPage(PageBase):
             "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }"
         )
         mform = QFormLayout(mode_group)
-        from PySide6.QtWidgets import QComboBox
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["Simulation", "Hardware"])
-        self.mode_combo.setCurrentIndex(0)
+        hw_available = self._ctx.hw_backend.is_available()
+        if not hw_available:
+            self.mode_combo.model().item(1).setEnabled(False)
+            self.mode_combo.setToolTip(
+                "Hardware mode unavailable: INA219 not initialised on this machine."
+            )
+        else:
+            self.mode_combo.setToolTip("Hardware: Raspberry Pi with INA219 over I²C.")
+        current = self._ctx.settings.get("sensor_mode")
+        self.mode_combo.setCurrentIndex(0 if current == "simulated" else 1)
         mform.addRow("Mode:", self.mode_combo)
         mode_hint = QLabel(
-            "Simulation: available everywhere. Hardware: Raspberry Pi with INA219 "
-            "over I²C. Mode is stored explicitly and never silently switched."
+            "Simulation: available everywhere (Windows development). Hardware: "
+            "Raspberry Pi with INA219 over I²C. Mode is stored explicitly and is "
+            "never silently switched from hardware to simulation."
         )
         mode_hint.setWordWrap(True)
         mode_hint.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
@@ -80,7 +94,47 @@ class SettingsPage(PageBase):
         self.add_stretch()
 
     def _save(self):
-        self.status_label.setText(
-            f"Settings saved: interval={self.interval_spin.value()}s, "
-            f"mode={self.mode_combo.currentText()}."
-        )
+        try:
+            interval = self.interval_spin.value()
+            self._ctx.settings.set("sampling_interval_s", interval)
+            self._ctx.engine.set_sampling_interval(interval)
+
+            mode_text = self.mode_combo.currentText()
+            new_mode = "hardware" if mode_text == "Hardware" else "simulated"
+
+            # Probe hardware only when the user explicitly selects it; never
+            # silently switch hardware -> simulation.
+            if new_mode == "hardware":
+                self._ctx.hw_backend.probe()
+
+            # Never silently switch hardware -> simulation. If the user selects
+            # hardware but hardware is unavailable, reject with an explanation.
+            if new_mode == "hardware" and not self._ctx.hw_backend.is_available():
+                raise SettingsError(
+                    "Hardware mode unavailable: INA219 sensor not initialised. "
+                    "Check wiring, I²C enablement, and System Information diagnostics."
+                )
+
+            self._ctx.settings.set("sensor_mode", new_mode)
+
+            # Switch backend only when the mode actually changes and is valid.
+            if new_mode != self._ctx.backend.mode:
+                self._ctx.engine.shutdown()
+                self._ctx.backend = (
+                    self._ctx.hw_backend if new_mode == "hardware" else self._ctx.sim_backend
+                )
+                self._ctx.engine = MeasurementEngine(self._ctx.backend, db_path=self._ctx.db_path)
+                self._mw.ctx = self._ctx
+                self._mw.ctx.engine.measurement_taken.connect(self._mw._on_measurement_taken)
+                self._mw.ctx.engine.backend_error.connect(self._mw._on_backend_error)
+
+            self.status_label.setText(
+                f"Saved: interval={interval}s, mode={mode_text}."
+            )
+            self.status_label.setStyleSheet(f"color: #15803d; font-size: 12px;")
+        except SettingsError as exc:
+            self.status_label.setText(f"Invalid setting: {exc}")
+            self.status_label.setStyleSheet(f"color: #991b1b; font-size: 12px;")
+        except Exception as exc:  # noqa: BLE001
+            self.status_label.setText(f"Save failed: {exc}")
+            self.status_label.setStyleSheet(f"color: #991b1b; font-size: 12px;")

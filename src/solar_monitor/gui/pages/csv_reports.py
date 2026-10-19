@@ -12,12 +12,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .base import PageBase
+from ...database.dao import list_measurements
+from ...services.csv_export import CSV_COLUMNS, export_measurements
 from ..theme import ACCENT_GREEN, TEXT_SECONDARY
+from .base import PageBase
 
 
 class CSVReportsPage(PageBase):
-    def __init__(self, parent=None):
+    def __init__(self, context, main_window, parent=None):
+        self._ctx = context
         super().__init__(
             "CSV Reports",
             "Export historical measurements to a user-selected CSV file with a "
@@ -26,7 +29,8 @@ class CSVReportsPage(PageBase):
         )
         self._build()
 
-    def _populate_content(self):
+    def _build(self):
+        super()._build()
         intro = QLabel(
             "Export saved measurements to CSV. The export uses a fixed column "
             "schema with consistent units (V, A, W, Wh) and ISO-8601 timestamps."
@@ -35,11 +39,16 @@ class CSVReportsPage(PageBase):
         intro.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px; padding-bottom: 10px;")
         self.add_widget(intro)
 
+        schema = QLabel("Columns: " + ", ".join(CSV_COLUMNS))
+        schema.setWordWrap(True)
+        schema.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px; padding-bottom: 10px;")
+        self.add_widget(schema)
+
         controls = QHBoxLayout()
         controls.setSpacing(10)
         self.btn_export = QPushButton("Export to CSV…")
         self.btn_export.setObjectName("success")
-        self.btn_export.clicked.connect(self._export)
+        self.btn_export.clicked.connect(self.do_export)
         controls.addWidget(self.btn_export)
         controls.addStretch()
         self.add_layout(controls)
@@ -50,26 +59,37 @@ class CSVReportsPage(PageBase):
 
         self.add_stretch()
 
-    def _export(self):
+    def do_export(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "Export measurements to CSV", "exports", "CSV files (*.csv)"
         )
         if not path:
             return
+        if not path.lower().endswith(".csv"):
+            path += ".csv"
         self.progress_label.setText("Exporting…")
+        self.btn_export.setEnabled(False)
         try:
-            from services.csv_export import export_measurements
-        except Exception as exc:  # pragma: no cover - service wired in phase 8
-            self.progress_label.setText("Export service not available yet.")
-            QMessageBox.information(
-                self, "CSV Export",
-                f"CSV export service will be available in Phase 8.\n\n({exc})",
-            )
-            return
-        try:
-            exported = export_measurements(path)
+            rows = list_measurements(self._ctx.conn, limit=100000)
+            if not rows:
+                self.progress_label.setText("No measurements to export.")
+                QMessageBox.information(self, "CSV Export", "No measurements to export.")
+                return
+            # Attach session_id to each row for the CSV writer.
+            exported = export_measurements(path, rows)
             self.progress_label.setText(f"Exported {exported} record(s) to {path}")
             QMessageBox.information(self, "CSV Export", f"Exported {exported} record(s) successfully.")
+        except PermissionError as exc:
+            self.progress_label.setText(f"Export failed: permission denied ({exc})")
+            QMessageBox.critical(self, "CSV Export", f"Permission denied:\n{exc}")
+        except OSError as exc:
+            self.progress_label.setText(f"Export failed: {exc}")
+            QMessageBox.critical(self, "CSV Export", f"Export failed:\n{exc}")
+        except ValueError as exc:
+            self.progress_label.setText(str(exc))
+            QMessageBox.information(self, "CSV Export", str(exc))
         except Exception as exc:  # noqa: BLE001
             self.progress_label.setText(f"Export failed: {exc}")
             QMessageBox.critical(self, "CSV Export", f"Export failed:\n{exc}")
+        finally:
+            self.btn_export.setEnabled(True)

@@ -2,14 +2,15 @@
 
 The acquisition loop runs on a Python ``threading.Thread`` (never the GUI
 thread) using a blocking ``time.sleep`` loop; the GUI thread runs a QTimer
-that polls a thread-safe queue and emits Qt signals. Power is always resolved
-consistently as P = V x I. Energy uses trapezoidal integration and never
-accumulates from invalid readings. The backend is fixed at construction time
--- hardware mode never silently substitutes simulation.
+(owned by the main window) that polls a thread-safe queue and invokes
+callbacks. Power is always resolved consistently as P = V x I. Energy uses
+trapezoidal integration and never accumulates from invalid readings. The
+backend is fixed at construction time -- hardware mode never silently
+substitutes simulation.
 
 All database access happens on the worker thread. The GUI thread only
-receives signals and polls the queue. Stop/pause/resume are thread-safe
-flags checked by the worker loop, so shutdown is deterministic.
+receives callbacks. Stop/pause/resume are thread-safe flags checked by the
+worker loop, so shutdown is deterministic.
 """
 
 from __future__ import annotations
@@ -20,9 +21,7 @@ import sqlite3
 import threading
 import time
 from enum import Enum
-from typing import Optional
-
-from PySide6.QtCore import QObject, QTimer, Signal
+from typing import Callable, Optional
 
 from solar_monitor.backends.interface import BackendError, SensorBackend, SensorReading
 from solar_monitor.core.config import SAMPLING_INTERVAL_SECONDS
@@ -51,7 +50,7 @@ class _MeasurementWorker(threading.Thread):
     """Blocking acquisition loop on a background threading.Thread.
 
     All database access and backend reads happen on this thread; the GUI
-    thread only receives signals via the queue poller.
+    thread only receives callbacks via the queue.
     """
 
     def __init__(self, backend: SensorBackend, db_path: str, interval_s: float):
@@ -66,6 +65,7 @@ class _MeasurementWorker(threading.Thread):
         self._integrator: Optional[EnergyIntegrator] = None
         self._paused = False
         self._stop_requested = False
+        self._stop_event = threading.Event()
         self._lock = threading.Lock()
 
     # -- thread-safe controls ----------------------------------------------
@@ -84,6 +84,7 @@ class _MeasurementWorker(threading.Thread):
     def request_stop(self):
         with self._lock:
             self._stop_requested = True
+        self._stop_event.set()
 
     def _state(self):
         with self._lock:
@@ -111,7 +112,8 @@ class _MeasurementWorker(threading.Thread):
                     break
                 if not paused:
                     self._tick()
-                time.sleep(max(0.05, interval_s))
+                # Interruptible sleep: request_stop() wakes it immediately.
+                self._stop_event.wait(timeout=max(0.05, interval_s))
         finally:
             if self._session_id is not None and self._conn is not None:
                 try:
@@ -188,7 +190,12 @@ class _MeasurementWorker(threading.Thread):
 
         Also breaks the energy integration chain so a later valid reading
         restarts from zero instead of accumulating across the fault gap.
+        The chain is broken before the DB write so a NaN-laden fault row can
+        never prevent the reset.
         """
+        if self._integrator is not None:
+            self._integrator.state.last_timestamp = None
+            self._integrator.state.last_power_w = None
         try:
             m = validate_reading(
                 float("nan"), float("nan"), None,
@@ -196,8 +203,6 @@ class _MeasurementWorker(threading.Thread):
             )
             insert_measurement(self._conn, self._session_id, m)
             if self._integrator is not None:
-                # Non-finite power resets the chain (EnergyIntegrator.add).
-                self._integrator.add(m.timestamp, float("nan"))
                 update_integration_state(self._conn, self._integrator.state)
         except Exception:  # noqa: BLE001 - best effort fault record
             pass
@@ -212,35 +217,30 @@ def _is_valid_reading(reading: SensorReading) -> bool:
     )
 
 
-class MeasurementEngine(QObject):
+class MeasurementEngine:
     """Controls acquisition lifecycle; runs the worker off the GUI thread.
 
-    A GUI-thread QTimer polls the worker queue and emits Qt signals, so the
-    GUI thread never touches the sqlite connection or the backend.
+    Callbacks are set by the GUI (main window) and invoked from the GUI
+    thread via the poll timer, so the GUI thread never touches the sqlite
+    connection or the backend.
     """
 
-    started = Signal(str)  # session id
-    stopped = Signal()
-    paused = Signal()
-    resumed = Signal()
-    measurement_taken = Signal(object, object, object)  # Measurement, increment_wh|None, total_energy_wh
-    error_occurred = Signal(str, str)  # context, message
-    status_changed = Signal(str)
-    backend_error = Signal(str)  # diagnostic message (hardware unavailable, etc.)
-
-    def __init__(self, backend: SensorBackend, db_path: Optional[str] = None, parent=None):
-        super().__init__(parent)
+    def __init__(self, backend: SensorBackend, db_path: Optional[str] = None):
         self._backend = backend
         self._db_path = db_path
         self._worker: Optional[_MeasurementWorker] = None
         self._state = EngineState.IDLE
         self._interval_s = SAMPLING_INTERVAL_SECONDS
         self._shutting_down = False
-        self._poll_timer = QTimer(self)
-        self._poll_timer.setInterval(50)  # poll the queue every 50 ms
-        self._poll_timer.setSingleShot(False)
-        self._poll_timer.timeout.connect(self._poll_queue)
-        self._poll_timer.start()
+        # Callbacks, set by the GUI layer:
+        self.on_started: Optional[Callable[[int], None]] = None
+        self.on_stopped: Optional[Callable[[], None]] = None
+        self.on_paused: Optional[Callable[[], None]] = None
+        self.on_resumed: Optional[Callable[[], None]] = None
+        self.on_measurement: Optional[Callable[[object, Optional[float], Optional[float]], None]] = None
+        self.on_error: Optional[Callable[[str, str], None]] = None
+        self.on_status_changed: Optional[Callable[[str], None]] = None
+        self.on_backend_error: Optional[Callable[[str], None]] = None
 
     # -- read-only properties ------------------------------------------------
     @property
@@ -250,6 +250,10 @@ class MeasurementEngine(QObject):
     @property
     def backend_mode(self) -> str:
         return self._backend.mode
+
+    @property
+    def backend(self) -> SensorBackend:
+        return self._backend
 
     @property
     def sampling_interval_s(self) -> float:
@@ -273,8 +277,12 @@ class MeasurementEngine(QObject):
         self._worker = _MeasurementWorker(self._backend, self._db_path, self._interval_s)
         self._worker.start()
 
-    def _poll_queue(self):
-        """Runs on the GUI thread: drain the worker queue and emit signals."""
+    def poll(self):
+        """Runs on the GUI thread: drain the worker queue and invoke callbacks.
+
+        Intended to be called periodically by a GUI-thread QTimer owned by the
+        main window.
+        """
         if self._worker is None:
             return
         q = self._worker.queue()
@@ -287,26 +295,31 @@ class MeasurementEngine(QObject):
             drained += 1
             kind = item[0]
             if kind == "started":
-                self._session_id = item[1]
-                self.started.emit(str(item[1]))
-                self.status_changed.emit(f"Acquisition started ({self._backend.mode})")
+                if self.on_started is not None:
+                    self.on_started(item[1])
+                if self.on_status_changed is not None:
+                    self.on_status_changed(
+                        f"Acquisition started ({self._backend.mode})"
+                    )
             elif kind == "stopped":
                 self._state = EngineState.IDLE
                 self._worker = None
-                self.stopped.emit()
-                self.status_changed.emit("Acquisition stopped")
+                if self.on_stopped is not None:
+                    self.on_stopped()
+                if self.on_status_changed is not None:
+                    self.on_status_changed("Acquisition stopped")
             elif kind == "measurement":
                 _, m, increment_wh, total_energy_wh = item
-                self.measurement_taken.emit(m, increment_wh, total_energy_wh)
+                if self.on_measurement is not None:
+                    self.on_measurement(m, increment_wh, total_energy_wh)
             elif kind == "error":
                 _, context, message = item
-                self.error_occurred.emit(context, message)
+                if self.on_error is not None:
+                    self.on_error(context, message)
             elif kind == "backend_error":
                 _, message = item
-                self.backend_error.emit(message)
-
-    def _on_measurement(self, m, increment_wh, total_energy_wh):
-        self.measurement_taken.emit(m, increment_wh, total_energy_wh)
+                if self.on_backend_error is not None:
+                    self.on_backend_error(message)
 
     def stop(self):
         """Stop acquisition and end the session. Safe to call when idle."""
@@ -316,6 +329,12 @@ class MeasurementEngine(QObject):
         self._state = EngineState.STOPPED
         self._worker.request_stop()
         self._worker.join(timeout=10.0)
+        self._worker = None
+        self._state = EngineState.IDLE
+        if self.on_stopped is not None:
+            self.on_stopped()
+        if self.on_status_changed is not None:
+            self.on_status_changed("Acquisition stopped")
 
     def pause(self):
         """Pause sampling (recording state preserved, loop skips readings)."""
@@ -323,8 +342,10 @@ class MeasurementEngine(QObject):
             return
         self._state = EngineState.PAUSED
         self._worker.request_pause()
-        self.paused.emit()
-        self.status_changed.emit("Acquisition paused")
+        if self.on_paused is not None:
+            self.on_paused()
+        if self.on_status_changed is not None:
+            self.on_status_changed("Acquisition paused")
 
     def resume(self):
         """Resume sampling after a pause."""
@@ -332,8 +353,10 @@ class MeasurementEngine(QObject):
             return
         self._state = EngineState.RUNNING
         self._worker.request_resume()
-        self.resumed.emit()
-        self.status_changed.emit("Acquisition resumed")
+        if self.on_resumed is not None:
+            self.on_resumed()
+        if self.on_status_changed is not None:
+            self.on_status_changed("Acquisition resumed")
 
     def shutdown(self):
         """Unsafe-shutdown guard: stop acquisition and refuse further starts."""

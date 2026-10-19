@@ -9,6 +9,7 @@ from solar_monitor.database.dao import (  # noqa: E402
     get_integration_state,
     get_setting,
     insert_measurement,
+    list_measurements,
     list_sessions,
     session_exists,
     set_setting,
@@ -28,4 +29,5 @@ __all__ = [
     "set_setting",
     "list_sessions",
     "session_exists",
+    "list_measurements",
 ]

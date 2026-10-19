@@ -1,7 +1,9 @@
 """GUI smoke tests for the Phase 1 main window and six-page navigation.
 
-These tests do not require pytest-qt: they build a QApplication with the
-offscreen platform (set by tests/conftest.py) and inspect the widget tree.
+Uses a single QApplication and one MainWindow instance (created once, reused)
+to avoid repeated widget construction/destruction that can trigger a
+PySide6/shiboken garbage-collection crash on Windows. Inspects the widget
+tree to confirm the six-page shell is wired correctly.
 """
 
 from __future__ import annotations
@@ -29,51 +31,44 @@ def _qapp() -> QApplication:
 
 _QAPP = _qapp()
 
+# Single shared window, created once for the whole module.
+_WINDOW = MainWindow()
+
 
 def test_main_window_launches():
-    window = MainWindow()
-    assert window.windowTitle() == "Solar Panel Performance Monitor"
-    assert window.minimumSize().width() >= 900
-    assert window.minimumSize().height() >= 600
-    window.close()
+    assert _WINDOW.windowTitle() == "Solar Panel Performance Monitor"
+    assert _WINDOW.minimumSize().width() >= 900
+    assert _WINDOW.minimumSize().height() >= 600
 
 
 def test_has_six_navigation_items():
-    window = MainWindow()
-    keys = [btn.property("navKey") for btn in window.nav._buttons.values()]
+    keys = [btn.property("navKey") for btn in _WINDOW.nav._buttons.values()]
     assert keys == [key for key, _ in NAV_ITEMS]
     assert len(keys) == 6
-    window.close()
 
 
 def test_nav_switch_changes_page():
-    window = MainWindow()
     for key, _label in NAV_ITEMS:
-        window.nav.set_active(key)
-        window._on_nav(key)
-        cls = window.stack.currentWidget().__class__.__name__
+        _WINDOW.nav.set_active(key)
+        _WINDOW._on_nav(key)
+        cls = _WINDOW.stack.currentWidget().__class__.__name__
         assert cls.endswith("Page"), f"page for {key} is {cls}"
-    window.close()
 
 
 def test_app_options_button_exists():
-    window = MainWindow()
-    labels = [b.text() for b in window.nav.findChildren(object) if hasattr(b, "text")]
+    labels = [b.text() for b in _WINDOW.nav.findChildren(object) if hasattr(b, "text")]
     assert "APP OPTIONS" in labels
-    window.close()
 
 
 def test_context_action_button_exists():
-    window = MainWindow()
-    assert window.context_action is not None
-    assert window.context_action.text() == "Start monitoring"
-    window.close()
+    _WINDOW.nav.set_active("live_monitoring")
+    _WINDOW._on_nav("live_monitoring")
+    assert _WINDOW.context_action is not None
+    assert _WINDOW.context_action.text() == "Start monitoring"
 
 
 def test_dashboard_shows_simulation_label():
-    window = MainWindow()
-    window.nav.set_active("dashboard")
-    window._on_nav("dashboard")
-    page = window.stack.currentWidget()
+    _WINDOW.nav.set_active("dashboard")
+    _WINDOW._on_nav("dashboard")
+    page = _WINDOW.stack.currentWidget()
     assert page.summary_label.text() == "No measurements yet."
-    window.close()

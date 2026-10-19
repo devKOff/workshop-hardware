@@ -1,10 +1,12 @@
 """INA219 hardware backend (Raspberry Pi).
 
 Pi-specific imports (adafruit-circuitpython-ina219, board, busio) are
-*lazy*: this module imports cleanly on Windows without the Pi stack, and the
-backend reports itself as unavailable unless the real hardware/driver can be
-initialised. Genuine readings are measured; power is resolved consistently
-as P = V x I. Never fabricates, caches, or reuses stale values.
+*lazy*: this module imports cleanly on Windows without the Pi stack. The
+backend is *not* probed at construction time -- probing happens only when
+explicitly requested (e.g. when the user selects hardware mode), so Windows
+development is never affected by the absent driver. Genuine readings are
+measured; power is resolved consistently as P = V x I. Never fabricates,
+caches, or reuses stale values.
 """
 
 from __future__ import annotations
@@ -18,15 +20,19 @@ DEFAULT_I2C_ADDRESS = 0x40
 
 
 class INA219HardwareBackend(SensorBackend):
-    """Genuine INA219 voltage/current sensor over I2C on Raspberry Pi."""
+    """Genuine INA219 voltage/current sensor over I2C on Raspberry Pi.
+
+    Not probed at construction: call :meth:`probe` (or :meth:`read`) to
+    attempt initialisation. Until probed, :meth:`is_available` returns False.
+    """
 
     def __init__(self, *, i2c_bus=DEFAULT_I2C_BUS, i2c_address=DEFAULT_I2C_ADDRESS):
         self._i2c_bus = i2c_bus
         self._i2c_address = i2c_address
         self._sensor = None
-        self._init_error = None
+        self._init_error = "not probed"
+        self._probed = False
         self._samples = 0
-        self._initialise()
 
     # -- backend interface -------------------------------------------------
     @property
@@ -34,7 +40,7 @@ class INA219HardwareBackend(SensorBackend):
         return "hardware"
 
     def is_available(self):
-        return self._sensor is not None and self._init_error is None
+        return self._probed and self._sensor is not None
 
     def diagnostics(self):
         return {
@@ -42,6 +48,7 @@ class INA219HardwareBackend(SensorBackend):
             "available": self.is_available(),
             "hardware": True,
             "simulated": False,
+            "probed": self._probed,
             "i2c_bus": self._i2c_bus,
             "i2c_address": hex(self._i2c_address),
             "init_error": self._init_error,
@@ -49,7 +56,17 @@ class INA219HardwareBackend(SensorBackend):
             "library": "adafruit-circuitpython-ina219",
         }
 
+    def probe(self):
+        """Attempt to initialise the INA219. Safe to call on any platform;
+        on Windows without the driver it records an error and stays
+        unavailable -- it never fabricates readings."""
+        if self._probed:
+            return
+        self._probed = True
+        self._initialise()
+
     def read(self):
+        self.probe()
         if not self.is_available():
             self._samples += 1
             raise BackendError(
