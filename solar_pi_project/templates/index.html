@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Solar Monitor{% endblock %}
+
+{% block extra_head }
+<style>
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .card { background: #ffffff; border: 1px solid #d8dee6; border-radius: 12px; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .card h2 { margin: 0 0 0.5rem; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #5b6572; }
+  .value { font-size: 1.9rem; font-weight: 700; color: #111827; margin: 0; }
+  .unit { font-size: 0.9rem; color: #6b7280; font-weight: 400; }
+  .error-state { color: #b91c1c; font-size: 0.95rem; }
+  .chart-wrap { background: #ffffff; border: 1px solid #d8dee6; border-radius: 12px; padding: 1rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .chart-wrap h3 { margin: 0 0 0.75rem; font-size: 1rem; color: #374151; }
+  canvas { max-height: 260px; }
+  @media (max-width: 600px) { .value { font-size: 1.5rem; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="grid">
+  <div class="card">
+    <h2>Panel voltage</h2>
+    <p class="value" id="v-val">&#8226;&#8226;&#8226;</p>
+    <p class="unit">V</p>
+  </div>
+  <div class="card">
+    <h2>Current (load)</h2>
+    <p class="value" id="i-val">&#8226;&#8226;&#8226;</p>
+    <p class="unit">mA</p>
+  </div>
+  <div class="card">
+    <h2>Instant power</h2>
+    <p class="value" id="p-val">&#8226;&#8226;&#8226;</p>
+    <p class="unit">W</p>
+  </div>
+  <div class="card">
+    <h2>Energy today</h2>
+    <p class="value" id="e-day">&#8226;&#8226;&#8226;</p>
+    <p class="unit">Wh</p>
+  </div>
+  <div class="card">
+    <h2>Total energy</h2>
+    <p class="value" id="e-total">&#8226;&#8226;&#8226;</p>
+    <p class="unit">Wh</p>
+  </div>
+  <div class="card">
+    <h2>Status</h2>
+    <p class="value error-state" id="status-text">&#8226;&#8226;&#8226;</p>
+    <p class="unit" id="ts-text">&#8212;</p>
+  </div>
+</section>
+
+<div class="chart-wrap">
+  <h3>Voltage &amp; Current (last hour)</h3>
+  <canvas id="chartVI"></canvas>
+</div>
+<div class="chart-wrap">
+  <h3>Power &amp; Energy (last hour)</h3>
+  <canvas id="chartPE"></canvas>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+  const INTERVAL_MS = 2000;
+  let chartVI, chartPE;
+
+  function fmt(n, dec) {
+    if (n === null || n === undefined || Number.isNaN(n)) return "&#8212;";
+    return Number(n).toFixed(dec);
+  }
+
+  function initCharts() {
+    const common = {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: { type: 'time', time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } }, ticks: { maxTicksLimit: 8 } },
+        y: { beginAtZero: false, grid: { color: '#f1f3f5' } }
+      },
+      plugins: { legend: { position: 'top' }, title: { display: false } }
+    };
+    chartVI = new Chart(document.getElementById('chartVI'), {
+      type: 'line',
+      data: { datasets: [
+        { label: 'Voltage (V)', borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', data: [], pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+        { label: 'Current (mA)', borderColor: '#059669', backgroundColor: 'rgba(5,150,105,0.1)', data: [], pointRadius: 0, tension: 0.3, yAxisID: 'y1' }
+      ]},
+      options: Object.assign({}, common, {
+        scales: Object.assign({}, common.scales, {
+          y: { position: 'left', title: { display: true, text: 'V' } },
+          y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'mA' } }
+        })
+      })
+    });
+    chartPE = new Chart(document.getElementById('chartPE'), {
+      type: 'line',
+      data: { datasets: [
+        { label: 'Power (W)', borderColor: '#d97706', backgroundColor: 'rgba(217,119,6,0.1)', data: [], pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+        { label: 'Energy (Wh)', borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.1)', data: [], pointRadius: 0, tension: 0.3, yAxisID: 'y1' }
+      ]},
+      options: Object.assign({}, common, {
+        scales: Object.assign({}, common.scales, {
+          y: { position: 'left', title: { display: true, text: 'W' } },
+          y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Wh' } }
+        })
+      })
+    });
+  }
+
+  function push(chart, label, v1, v2) {
+    if (!chart) return;
+    chart.data.datasets[0].data.push({ x: label, y: v1 });
+    chart.data.datasets[1].data.push({ x: label, y: v2 });
+    const maxPts = 60;
+    if (chart.data.datasets[0].data.length > maxPts) {
+      chart.data.datasets[0].data.shift();
+      chart.data.datasets[1].data.shift();
+    }
+    chart.update('none');
+  }
+
+  async function loadCurrent() {
+    try {
+      const res = await fetch('/api/current');
+      const d = await res.json();
+      const chip = document.getElementById('status-chip');
+      const st = document.getElementById('status-text');
+      const ts = document.getElementById('ts-text');
+
+      document.getElementById('v-val').textContent = d.bus_voltage_v !== null ? fmt(d.bus_voltage_v, 2) : "&#8212;";
+      document.getElementById('i-val').textContent = d.current_ma !== null ? fmt(d.current_ma, 1) : "&#8212;";
+      document.getElementById('p-val').textContent = d.power_mw !== null ? fmt(d.power_mw / 1000, 3) : "&#8212;";
+      document.getElementById('e-day').textContent = d.daily_wh !== null ? fmt(d.daily_wh, 2) : "&#8212;";
+      document.getElementById('e-total').textContent = d.energy_wh !== null ? fmt(d.energy_wh, 2) : "&#8212;";
+
+      if (d.ok) {
+        chip.className = "status-chip ok";
+        chip.textContent = "&#9679; sensor OK";
+        st.className = "value";
+        st.textContent = "Sensor connected";
+      } else {
+        chip.className = "status-chip error";
+        chip.textContent = "&#9679; sensor error";
+        st.className = "value error-state";
+        st.textContent = (d.error || "read failed");
+      }
+      ts.textContent = d.timestamp ? d.timestamp.replace("T", " ") : "&#8212;";
+    } catch (e) {
+      document.getElementById('status-chip').textContent = "&#9679; unreachable";
+      document.getElementById('status-text').textContent = "Cannot reach dashboard API";
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/history?minutes=60');
+      const d = await res.json();
+      const times = d.timestamps || [];
+      chartVI.data.datasets[0].data = times.map((t, i) => ({ x: t, y: d.bus_voltage_v[i] }));
+      chartVI.data.datasets[1].data = times.map((t, i) => ({ x: t, y: d.current_ma[i] }));
+      chartPE.data.datasets[0].data = times.map((t, i) => ({ x: t, y: d.power_mw[i] !== null ? d.power_mw[i] / 1000 : null }));
+      chartPE.data.datasets[1].data = times.map((t, i) => ({ x: t, y: d.energy_wh[i] }));
+      chartVI.update();
+      chartPE.update();
+    } catch (e) {
+      console.warn("history load failed", e);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initCharts();
+    loadCurrent();
+    loadHistory();
+    setInterval(() => { loadCurrent(); loadHistory(); }, INTERVAL_MS);
+  });
+</script>
+{% endblock %}

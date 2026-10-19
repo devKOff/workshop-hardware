@@ -1,0 +1,9 @@
+# Python dependencies for the Solar Panel Performance Monitor.
+# Install into a virtual environment on the Raspberry Pi:
+#   python -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r src/requirements.txt
+
+flask>=3.0.0
+ina219>=0.1.0
+smbus2>=0.4.0

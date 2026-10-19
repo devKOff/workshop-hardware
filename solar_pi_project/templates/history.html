@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}History &amp; CSV — Solar Monitor{% endblock %}
+
+{% block extra_head %}
+<style>
+  .toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-bottom: 1rem; }
+  .toolbar input, .toolbar select { padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.95rem; }
+  .toolbar button { padding: 0.5rem 1rem; border: 1px solid #2563eb; background: #2563eb; color: #fff; border-radius: 8px; cursor: pointer; font-size: 0.95rem; }
+  .toolbar button.secondary { background: #f1f5f9; border-color: #94a3b8; color: #334155; }
+  .table-wrap { overflow-x: auto; border: 1px solid #d8dee6; border-radius: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eef1f6; }
+  th { background: #f8fafc; color: #475569; position: sticky; top: 0; z-index: 1; }
+  tr:nth-child(even) td { background: #fcfdfd; }
+  .ok { color: #059669; font-weight: 600; font-size: 0.85rem; }
+  .err { color: #b91c1c; font-weight: 600; font-size: 0.85rem; }
+  .muted { color: #6b7280; font-size: 0.85rem; }
+  .hint { margin-top: 1rem; color: #6b7280; font-size: 0.9rem; }
+  @media (max-width: 600px) { table { font-size: 0.8rem; } th, td { padding: 0.5rem; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="toolbar">
+  <label style="font-size:0.9rem; color:#475569;">From</label>
+  <input type="datetime-local" id="start">
+  <label style="font-size:0.9rem; color:#475569;">To</label>
+  <input type="datetime-local" id="end">
+  <button id="btnLoad">Load</button>
+  <button class="secondary" id="btnClear">Clear filter</button>
+  <a class="secondary" id="btnCsv" style="margin-left:auto; text-decoration:none;">Download CSV</a>
+</section>
+
+<div class="table-wrap">
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Voltage (V)</th>
+        <th>Current (mA)</th>
+        <th>Power (W)</th>
+        <th>Energy (Wh)</th>
+        <th>Status</th>
+        <th>Error</th>
+      </tr>
+    </thead>
+    <tbody id="tblBody">
+      <tr><td colspan="7" class="muted">Loading&#8230;</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="hint">Shows valid readings only (newest first). Failed samples are kept in the database so gaps in logging are visible, but are excluded from this table.</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const startInput = document.getElementById('start');
+  const endInput = document.getElementById('end');
+  const btnLoad = document.getElementById('btnLoad');
+  const btnClear = document.getElementById('btnClear');
+  const btnCsv = document.getElementById('btnCsv');
+  const tbody = document.getElementById('tblBody');
+
+  function defaultLocal(d) {
+    // Convert Date to 'YYYY-MM-DDTHH:MM' for datetime-local input
+    const pad = n => String(n).padStart(2, '0');
+    const off = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - off * 60000);
+    return `${local.getFullYear()}-${pad(local.getMonth()+1)}-${pad(local.getDate())}T${pad(local.getHours())}:${pad(local.getMinutes())}`;
+  }
+
+  function fmt(n, dec) {
+    if (n === null || n === undefined || Number.isNaN(n)) return "&#8212;";
+    return Number(n).toFixed(dec);
+  }
+
+  async function load() {
+    const params = new URLSearchParams();
+    if (startInput.value) params.set('start', startInput.value + ':00');
+    if (endInput.value) params.set('end', endInput.value + ':00');
+    tbody.innerHTML = '<tr><td colspan="7" class="muted">Loading&#8230;</td></tr>';
+    try {
+      const res = await fetch('/api/history?' + params.toString());
+      const d = await res.json();
+      render(d.timestamps || [], d.bus_voltage_v || [], d.current_ma || [], d.power_mw || [], d.energy_wh || []);
+      btnCsv.href = '/export.csv?' + params.toString();
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="7" class="err">Failed to load history.</td></tr>';
+    }
+  }
+
+  function render(ts, v, i, p, e) {
+    if (!ts.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">No readings in range.</td></tr>';
+      return;
+    }
+    let html = '';
+    // Newest first
+    for (let k = ts.length - 1; k >= 0; k--) {
+      const ok = true; // /api/history returns valid readings only
+      html += `
+        <tr>
+          <td>${ts[k].replace('T', ' ')}</td>
+          <td>${fmt(v[k], 2)}</td>
+          <td>${fmt(i[k], 1)}</td>
+          <td>${fmt(p[k] !== null ? p[k] / 1000 : null, 3)}</td>
+          <td>${fmt(e[k], 2)}</td>
+          <td class="ok">OK</td>
+          <td class="muted">&#8212;</td>
+        </tr>`;
+    }
+    tbody.innerHTML = html;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const now = defaultLocal(new Date());
+    const oneHourAgo = defaultLocal(new Date(Date.now() - 3600000));
+    endInput.value = now;
+    startInput.value = oneHourAgo;
+    btnLoad.addEventListener('click', load);
+    btnClear.addEventListener('click', () => {
+      startInput.value = '';
+      endInput.value = now;
+      load();
+    });
+    load();
+  });
+</script>
+{% endblock %}

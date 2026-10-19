@@ -117,3 +117,20 @@ python src/app.py
 | Panel Voc | ~6–9 V (must measure) | Multimeter in bright sun; must be < breakout bus max |
 | Panel Isc | ~0.5 A (3 W / 6 V) | Must be within shunt/breakout rating |
 | Load | 22 Ω, 5 W | ~1.6 W dissipation at 6 V — warm but within rating |
+
+## Note on pre-existing files in this workspace
+
+This workspace also contained a separate, earlier prototype before this deliverable was written:
+- `src/sensor_reader.py`, `src/dashboard.py` (monolithic sensor + Flask app)
+- `static/dashboard.css`, `static/dashboard.js`
+- `docs/project_overview.md`, `docs/bill_of_materials.md`, `docs/hardware_wiring.md`, `docs/raspberry_pi_setup.md`
+
+These files are **preserved as-is** and were not modified or deleted. They form an alternative (partially inconsistent — e.g. `dashboard.js` calls `/api/readings` and `/api/csv_export`, which `dashboard.py` does not define) implementation. The complete, self-consistent deliverable for this project is:
+
+- `src/app.py` (Flask dashboard + background sampler)
+- `src/ina219_reader.py`, `src/database.py`, `src/energy_tracker.py`, `src/config.py`
+- `templates/`, `static/style.css`
+- `docs/01_..` through `docs/10_..`
+- `scripts/`, `systemd/`
+
+Use `python src/app.py` (with the venv from `scripts/install.sh`) to run the dashboard.
