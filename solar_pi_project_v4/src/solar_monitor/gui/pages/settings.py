@@ -61,6 +61,9 @@ class SettingsPage(PageBase):
         mform = QFormLayout(mode_group)
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["Simulation", "Hardware"])
+        # Probe hardware on page load so availability is known and the
+        # Hardware option is enabled when the INA219 is detected.
+        self._ctx.hw_backend.probe()
         hw_available = self._ctx.hw_backend.is_available()
         if not hw_available:
             self.mode_combo.model().item(1).setEnabled(False)
