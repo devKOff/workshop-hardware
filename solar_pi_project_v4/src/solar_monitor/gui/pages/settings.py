@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -51,7 +51,7 @@ class SettingsPage(PageBase):
         form.addRow("", hint)
         self.add_widget(interval_group)
 
-        # Operating mode group - checkboxes instead of dropdown
+        # Operating mode group - radio buttons for mutually exclusive selection
         mode_group = QGroupBox("Operating mode")
         mode_group.setStyleSheet(
             "QGroupBox { font-weight: 700; color: #111827; border: 1px solid #e5e7eb; "
@@ -60,40 +60,39 @@ class SettingsPage(PageBase):
         )
         mform = QFormLayout(mode_group)
 
-        # Checkboxes for mode selection (mutually exclusive)
-        self.mode_checkboxes = QHBoxLayout()
-        self.mode_checkboxes.setSpacing(16)
+        # Radio buttons for mode selection (mutually exclusive)
+        self.mode_radio_group = QHBoxLayout()
+        self.mode_radio_group.setSpacing(16)
 
-        self.sim_checkbox = QCheckBox("Simulation")
-        self.sim_checkbox.setStyleSheet("font-weight: 600; color: #1f3a5f;")
-        self.sim_checkbox.stateChanged.connect(self._on_mode_checkbox_changed)
-        self.mode_checkboxes.addWidget(self.sim_checkbox)
+        self.sim_radio = QRadioButton("Simulation")
+        self.sim_radio.setStyleSheet("font-weight: 600; color: #1f3a5f;")
+        self.sim_radio.setChecked(True)
+        self.mode_radio_group.addWidget(self.sim_radio)
 
-        self.hw_checkbox = QCheckBox("Hardware")
-        self.hw_checkbox.setStyleSheet("font-weight: 600; color: #2e7d5b;")
-        self.hw_checkbox.stateChanged.connect(self._on_mode_checkbox_changed)
-        self.mode_checkboxes.addWidget(self.hw_checkbox)
+        self.hw_radio = QRadioButton("Hardware")
+        self.hw_radio.setStyleSheet("font-weight: 600; color: #2e7d5b;")
+        self.mode_radio_group.addWidget(self.hw_radio)
 
-        self.mode_checkboxes.addStretch()
-        mform.addRow("Mode:", self.mode_checkboxes)
+        self.mode_radio_group.addStretch()
+        mform.addRow("Mode:", self.mode_radio_group)
 
         # Probe hardware on page load so availability is known and the
         # Hardware option is enabled when the INA219 is detected.
         self._ctx.hw_backend.probe()
         hw_available = self._ctx.hw_backend.is_available()
         if not hw_available:
-            self.hw_checkbox.setEnabled(False)
-            self.hw_checkbox.setToolTip(
+            self.hw_radio.setEnabled(False)
+            self.hw_radio.setToolTip(
                 "Hardware mode unavailable: INA219 not initialised on this machine."
             )
         else:
-            self.hw_checkbox.setToolTip("Hardware: Raspberry Pi with INA219 over I²C.")
-        self.sim_checkbox.setToolTip("Simulation: available everywhere (Windows development).")
+            self.hw_radio.setToolTip("Hardware: Raspberry Pi with INA219 over I²C.")
+        self.sim_radio.setToolTip("Simulation: available everywhere (Windows development).")
 
         # Set initial state from saved settings
         current = self._ctx.settings.get("sensor_mode")
-        self.sim_checkbox.setChecked(current == "simulated")
-        self.hw_checkbox.setChecked(current == "hardware")
+        self.sim_radio.setChecked(current == "simulated")
+        self.hw_radio.setChecked(current == "hardware")
 
         mode_hint = QLabel(
             "Simulation: available everywhere (Windows development). Hardware: "
@@ -116,23 +115,14 @@ class SettingsPage(PageBase):
 
         self.add_stretch()
 
-    def _on_mode_checkbox_changed(self, state):
-        """Keep simulation and hardware checkboxes mutually exclusive."""
-        sender = self.sender()
-        if state:  # checkbox was checked
-            if sender is self.sim_checkbox:
-                self.hw_checkbox.setChecked(False)
-            elif sender is self.hw_checkbox:
-                self.sim_checkbox.setChecked(False)
-
     def _save(self):
         try:
             interval = self.interval_spin.value()
             self._ctx.settings.set("sampling_interval_s", interval)
             self._ctx.engine.set_sampling_interval(interval)
 
-            # Determine mode from checkboxes
-            if self.hw_checkbox.isChecked():
+            # Determine mode from radio buttons
+            if self.hw_radio.isChecked():
                 new_mode = "hardware"
             else:
                 new_mode = "simulated"
