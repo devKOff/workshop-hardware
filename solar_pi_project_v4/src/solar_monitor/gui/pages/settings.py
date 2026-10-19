@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QComboBox,
+    QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
@@ -51,7 +51,7 @@ class SettingsPage(PageBase):
         form.addRow("", hint)
         self.add_widget(interval_group)
 
-        # Operating mode group
+        # Operating mode group - checkboxes instead of dropdown
         mode_group = QGroupBox("Operating mode")
         mode_group.setStyleSheet(
             "QGroupBox { font-weight: 700; color: #111827; border: 1px solid #e5e7eb; "
@@ -59,22 +59,42 @@ class SettingsPage(PageBase):
             "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }"
         )
         mform = QFormLayout(mode_group)
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Simulation", "Hardware"])
+
+        # Checkboxes for mode selection (mutually exclusive)
+        self.mode_checkboxes = QHBoxLayout()
+        self.mode_checkboxes.setSpacing(16)
+
+        self.sim_checkbox = QCheckBox("Simulation")
+        self.sim_checkbox.setStyleSheet("font-weight: 600; color: #1f3a5f;")
+        self.sim_checkbox.stateChanged.connect(self._on_mode_checkbox_changed)
+        self.mode_checkboxes.addWidget(self.sim_checkbox)
+
+        self.hw_checkbox = QCheckBox("Hardware")
+        self.hw_checkbox.setStyleSheet("font-weight: 600; color: #2e7d5b;")
+        self.hw_checkbox.stateChanged.connect(self._on_mode_checkbox_changed)
+        self.mode_checkboxes.addWidget(self.hw_checkbox)
+
+        self.mode_checkboxes.addStretch()
+        mform.addRow("Mode:", self.mode_checkboxes)
+
         # Probe hardware on page load so availability is known and the
         # Hardware option is enabled when the INA219 is detected.
         self._ctx.hw_backend.probe()
         hw_available = self._ctx.hw_backend.is_available()
         if not hw_available:
-            self.mode_combo.model().item(1).setEnabled(False)
-            self.mode_combo.setToolTip(
+            self.hw_checkbox.setEnabled(False)
+            self.hw_checkbox.setToolTip(
                 "Hardware mode unavailable: INA219 not initialised on this machine."
             )
         else:
-            self.mode_combo.setToolTip("Hardware: Raspberry Pi with INA219 over I²C.")
+            self.hw_checkbox.setToolTip("Hardware: Raspberry Pi with INA219 over I²C.")
+        self.sim_checkbox.setToolTip("Simulation: available everywhere (Windows development).")
+
+        # Set initial state from saved settings
         current = self._ctx.settings.get("sensor_mode")
-        self.mode_combo.setCurrentIndex(0 if current == "simulated" else 1)
-        mform.addRow("Mode:", self.mode_combo)
+        self.sim_checkbox.setChecked(current == "simulated")
+        self.hw_checkbox.setChecked(current == "hardware")
+
         mode_hint = QLabel(
             "Simulation: available everywhere (Windows development). Hardware: "
             "Raspberry Pi with INA219 over I²C. Mode is stored explicitly and is "
@@ -96,14 +116,26 @@ class SettingsPage(PageBase):
 
         self.add_stretch()
 
+    def _on_mode_checkbox_changed(self, state):
+        """Keep simulation and hardware checkboxes mutually exclusive."""
+        sender = self.sender()
+        if state:  # checkbox was checked
+            if sender is self.sim_checkbox:
+                self.hw_checkbox.setChecked(False)
+            elif sender is self.hw_checkbox:
+                self.sim_checkbox.setChecked(False)
+
     def _save(self):
         try:
             interval = self.interval_spin.value()
             self._ctx.settings.set("sampling_interval_s", interval)
             self._ctx.engine.set_sampling_interval(interval)
 
-            mode_text = self.mode_combo.currentText()
-            new_mode = "hardware" if mode_text == "Hardware" else "simulated"
+            # Determine mode from checkboxes
+            if self.hw_checkbox.isChecked():
+                new_mode = "hardware"
+            else:
+                new_mode = "simulated"
 
             # Probe hardware only when the user explicitly selects it; never
             # silently switch hardware -> simulation.
@@ -132,7 +164,7 @@ class SettingsPage(PageBase):
                 self._mw.ctx.engine.backend_error.connect(self._mw._on_backend_error)
 
             self.status_label.setText(
-                f"Saved: interval={interval}s, mode={mode_text}."
+                f"Saved: interval={interval}s, mode={new_mode}."
             )
             self.status_label.setStyleSheet(f"color: #15803d; font-size: 12px;")
         except SettingsError as exc:
