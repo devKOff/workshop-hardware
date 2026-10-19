@@ -15,6 +15,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
+
+# Allow running this script directly: python scripts/check_hardware.py
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import Config, load_config
 from app.hardware.ina219_sensor import INA219Sensor, INA219SensorError
