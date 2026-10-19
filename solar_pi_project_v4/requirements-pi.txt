@@ -1,0 +1,1 @@
+adafruit-circuitpython-ina219>=4.2,<5.0
