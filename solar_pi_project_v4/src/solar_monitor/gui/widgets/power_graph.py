@@ -1,4 +1,5 @@
-"""Live graph widget: bounded-data-buffer voltage/current/power plot."""
+"""Live graph widget: bounded-data-buffer voltage/current/power plot with
+checkboxes to show/hide individual lines (no scrollbars needed)."""
 
 from __future__ import annotations
 
@@ -6,7 +7,13 @@ from collections import deque
 from datetime import datetime, timezone
 
 import pyqtgraph as pg
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ...core.measurement import Measurement
 
@@ -17,6 +24,8 @@ class LiveGraphWidget(QWidget):
     Uses bounded data buffers (deque) sized by a time window so memory stays
     constant regardless of how long the acquisition runs. All updates happen
     on the GUI thread via the engine's poll timer.
+
+    Checkboxes let the user show/hide each curve instead of scrolling.
     """
 
     def __init__(self, history_seconds: float = 300.0, parent: QWidget | None = None):
@@ -33,8 +42,41 @@ class LiveGraphWidget(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(4)
 
+        # Checkbox row: show/hide individual curves (no scrollbars needed)
+        cb_row = QHBoxLayout()
+        cb_row.setContentsMargins(4, 0, 4, 0)
+        cb_row.setSpacing(12)
+
+        self.cb_voltage = QCheckBox("Voltage (V)")
+        self.cb_voltage.setChecked(True)
+        self.cb_voltage.setStyleSheet("color: #1f3a5f; font-weight: 600;")
+        self.cb_voltage.stateChanged.connect(
+            lambda _: self.curve_v.setVisible(self.cb_voltage.isChecked())
+        )
+        cb_row.addWidget(self.cb_voltage)
+
+        self.cb_current = QCheckBox("Current (A)")
+        self.cb_current.setChecked(True)
+        self.cb_current.setStyleSheet("color: #2e7d5b; font-weight: 600;")
+        self.cb_current.stateChanged.connect(
+            lambda _: self.curve_i.setVisible(self.cb_current.isChecked())
+        )
+        cb_row.addWidget(self.cb_current)
+
+        self.cb_power = QCheckBox("Power (W)")
+        self.cb_power.setChecked(True)
+        self.cb_power.setStyleSheet("color: #b45309; font-weight: 600;")
+        self.cb_power.stateChanged.connect(
+            lambda _: self.curve_p.setVisible(self.cb_power.isChecked())
+        )
+        cb_row.addWidget(self.cb_power)
+
+        cb_row.addStretch()
+        layout.addLayout(cb_row)
+
+        # Plot area
         self.plot = pg.PlotWidget()
         self.plot.setBackground("w")
         self.plot.showGrid(x=True, y=True, alpha=0.3)

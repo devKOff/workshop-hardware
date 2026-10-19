@@ -1,4 +1,5 @@
-"""Historical Data page: sortable table of saved measurements from SQLite."""
+"""Historical Data page: sortable table of saved measurements from SQLite
+with checkboxes to show/hide columns (no horizontal scrollbar needed)."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDateEdit,
     QHBoxLayout,
     QHeaderView,
@@ -22,16 +24,16 @@ from ..theme import ACCENT_NAVY, TEXT_SECONDARY
 from .base import PageBase
 
 COLUMNS = [
-    "Timestamp (UTC)",
-    "Session",
-    "Mode",
-    "Status",
-    "Voltage (V)",
-    "Current (A)",
-    "Power (W)",
-    "Energy Incr. (Wh)",
-    "Daily Energy (Wh)",
-    "Total Energy (Wh)",
+    ("Timestamp (UTC)", "timestamp", True),
+    ("Session", "session_id", True),
+    ("Mode", "sensor_mode", True),
+    ("Status", "sensor_status", True),
+    ("Voltage (V)", "voltage_v", True),
+    ("Current (A)", "current_a", True),
+    ("Power (W)", "power_w", True),
+    ("Energy Incr. (Wh)", "energy_wh_increment", True),
+    ("Daily Energy (Wh)", "daily_energy_wh", False),
+    ("Total Energy (Wh)", "total_energy_wh", False),
 ]
 
 
@@ -44,10 +46,29 @@ class HistoricalDataPage(PageBase):
             parent,
         )
         self._rows = []
+        self._col_visibility = {}  # column_key -> QCheckBox
         self._build()
 
     def _build(self):
         super()._build()
+        # Checkboxes to show/hide table columns (no horizontal scrollbar needed)
+        cb_row = QHBoxLayout()
+        cb_row.setContentsMargins(4, 0, 4, 0)
+        cb_row.setSpacing(10)
+
+        for col_name, col_key, default_visible in COLUMNS:
+            cb = QCheckBox(col_name)
+            cb.setChecked(default_visible)
+            cb.setStyleSheet("font-weight: 600; font-size: 12px;")
+            cb.stateChanged.connect(
+                lambda _, ck=col_key: self._toggle_column(ck, cb.isChecked())
+            )
+            self._col_visibility[col_key] = cb
+            cb_row.addWidget(cb)
+
+        cb_row.addStretch()
+        self.add_layout(cb_row)
+
         # Filter row
         filters = QHBoxLayout()
         filters.setSpacing(10)
@@ -97,6 +118,16 @@ class HistoricalDataPage(PageBase):
         wrapper.setLayout(layout)
         self.content_layout.addWidget(wrapper)
 
+    def _toggle_column(self, col_key: str, visible: bool):
+        """Show/hide a table column by key."""
+        col_index = None
+        for i, (_, key, _) in enumerate(COLUMNS):
+            if key == col_key:
+                col_index = i
+                break
+        if col_index is not None:
+            self.table.setColumnHidden(col_index, not visible)
+
     def _date_to_iso(self, qdate):
         if qdate is None or not qdate.isValid():
             return None
@@ -125,7 +156,7 @@ class HistoricalDataPage(PageBase):
 
     def _populate(self):
         model = QStandardItemModel(0, len(COLUMNS))
-        model.setHorizontalHeaderLabels(COLUMNS)
+        model.setHorizontalHeaderLabels([c[0] for c in COLUMNS])
         for row in self._rows:
             items = [
                 QStandardItem(str(row["timestamp"])),
@@ -148,4 +179,7 @@ class HistoricalDataPage(PageBase):
         self.table.setModel(model)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
+        # Apply initial column visibility
+        for col_idx, (_, col_key, default_visible) in enumerate(COLUMNS):
+            self.table.setColumnHidden(col_idx, not self._col_visibility[col_key].isChecked())
         self.status_label.setText(f"{self.table.model().rowCount()} record(s) shown.")
