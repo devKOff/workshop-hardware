@@ -21,7 +21,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Solar Panel Performance Monitor v{__version__}")
         return 0
 
-    from app.gui import run_gui  # noqa: PLC0415
+    import os as _os
+    import sys as _sys
+
+    # Make the src/ layout importable when running main.py directly.
+    _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "src"))
+
+    from src.solar_monitor.gui.main_window import run_gui  # noqa: PLC0415
+
     return run_gui()
 
 

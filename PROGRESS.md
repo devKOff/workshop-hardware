@@ -6,7 +6,7 @@
 - [x] Phase 1: Foundation (structure, requirements, config, main.py --version, README, HOW_TO_USE_GUIDE, docs, conftest, smoke test)
 - [x] Phase 2: Core logic (measurement model, validation, power, sensor interface, simulation backend, energy integrator, tests)
 - [x] Phase 3: Local storage (SQLite schema, settings service, backup/restore, tests)
-- [ ] PART 1 CHECK COMMANDS + GIT COMMANDS (in progress)
+- [x] PART 1 CHECK COMMANDS + GIT COMMANDS (complete; push pending — no origin remote)
 
 ### Part 2 — GUI, monitoring, history and reports
 - [ ] Phase 4: GUI shell and dashboard
