@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QCheckBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -27,51 +26,10 @@ class DashboardPage(PageBase):
         )
         self._latest = None
         self._total_energy_wh = 0.0
-        self._cards = {}  # card_key -> (card_widget, value_label, checkbox)
         self._build()
 
     def _build(self):
         super()._build()
-        # Checkboxes to show/hide metric cards (no scrollbars needed)
-        cb_row = QHBoxLayout()
-        cb_row.setContentsMargins(4, 0, 4, 0)
-        cb_row.setSpacing(12)
-
-        self.cb_voltage = QCheckBox("Voltage")
-        self.cb_voltage.setChecked(True)
-        self.cb_voltage.setStyleSheet("color: #1f3a5f; font-weight: 600;")
-        self.cb_voltage.stateChanged.connect(
-            lambda _: self.voltage_card.setVisible(self.cb_voltage.isChecked())
-        )
-        cb_row.addWidget(self.cb_voltage)
-
-        self.cb_current = QCheckBox("Current")
-        self.cb_current.setChecked(True)
-        self.cb_current.setStyleSheet("color: #1f3a5f; font-weight: 600;")
-        self.cb_current.stateChanged.connect(
-            lambda _: self.current_card.setVisible(self.cb_current.isChecked())
-        )
-        cb_row.addWidget(self.cb_current)
-
-        self.cb_power = QCheckBox("Power")
-        self.cb_power.setChecked(True)
-        self.cb_power.setStyleSheet("color: #1f3a5f; font-weight: 600;")
-        self.cb_power.stateChanged.connect(
-            lambda _: self.power_card.setVisible(self.cb_power.isChecked())
-        )
-        cb_row.addWidget(self.cb_power)
-
-        self.cb_energy = QCheckBox("Energy")
-        self.cb_energy.setChecked(True)
-        self.cb_energy.setStyleSheet("color: #2e7d5b; font-weight: 600;")
-        self.cb_energy.stateChanged.connect(
-            lambda _: self.energy_card.setVisible(self.cb_energy.isChecked())
-        )
-        cb_row.addWidget(self.cb_energy)
-
-        cb_row.addStretch()
-        self.add_layout(cb_row)
-
         # Metric cards row
         metrics = QGridLayout()
         metrics.setSpacing(14)
