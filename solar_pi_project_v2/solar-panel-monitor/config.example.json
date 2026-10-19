@@ -1,0 +1,13 @@
+{
+  "sensor_mode": "simulation",
+  "sampling_interval_seconds": 2,
+  "ina219_i2c_address": 64,
+  "ina219_shunt_ohms": 0.1,
+  "ina219_max_expected_amps": 0.5,
+  "database_path": "solar_monitor.db",
+  "host": "0.0.0.0",
+  "port": 5000,
+  "debug": false,
+  "log_level": "INFO",
+  "secret_key": "dev-secret-change-me"
+}

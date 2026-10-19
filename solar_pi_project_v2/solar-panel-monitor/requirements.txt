@@ -1,0 +1,11 @@
+# Solar Panel Performance Monitor - Python dependencies
+# Pinned versions tested with Python 3.12 on Windows and Raspberry Pi OS.
+
+Flask==3.1.3
+pytest==9.1.1
+pytest-cov==7.1.0
+pytest-mock==3.16.0
+
+# Raspberry Pi INA219 driver (hardware mode on Pi only).
+# Not installed on Windows; the simulated sensor is used instead.
+# ina219==1.0.1
