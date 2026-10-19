@@ -228,14 +228,14 @@ class MainWindow(QMainWindow):
 
     # --- Engine callback handlers ------------------------------------------
     def _on_measurement_taken(self, m, increment_wh, total_energy_wh):
-        page = self._pages.get(NAV_DASHBOARD)
-        if page is not None:
-            page.on_measurement(m, increment_wh, total_energy_wh)
+        for page in self._pages.values():
+            if hasattr(page, "on_measurement"):
+                page.on_measurement(m, increment_wh, total_energy_wh)
 
     def _on_backend_error(self, message: str):
-        page = self._pages.get(NAV_DASHBOARD)
-        if page is not None:
-            page.on_backend_error(message)
+        for page in self._pages.values():
+            if hasattr(page, "on_backend_error"):
+                page.on_backend_error(message)
 
     def closeEvent(self, event):
         self.ctx.close()

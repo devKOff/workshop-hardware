@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from ...core.measurement_engine import EngineState
 from ..theme import ACCENT_GREEN, ACCENT_NAVY, OK_TEXT, TEXT_SECONDARY, WARN_TEXT
+from ..widgets.power_graph import LiveGraphWidget
 from .base import PageBase
 
 
@@ -64,21 +65,10 @@ class DashboardPage(PageBase):
 
         self.add_layout(status)
 
-        # Live power graph placeholder
-        graph_box = QWidget()
-        graph_box.setObjectName("card")
-        gv = QVBoxLayout(graph_box)
-        gv.setContentsMargins(14, 14, 14, 14)
-        gh = QLabel("Live power graph")
-        gh.setStyleSheet("font-weight: 700; color: #111827;")
-        gv.addWidget(gh)
-        self.graph_placeholder = QLabel("Compact live power graph (graph rendering in Phase 7).")
-        self.graph_placeholder.setStyleSheet(
-            f"color: {TEXT_SECONDARY}; font-size: 12px; padding-top: 8px;"
-        )
-        self.graph_placeholder.setFixedHeight(120)
-        gv.addWidget(self.graph_placeholder)
-        self.add_widget(graph_box)
+        # Live power graph (compact, bounded data buffer).
+        self.graph = LiveGraphWidget(history_seconds=300.0)
+        self.graph.setMaximumHeight(160)
+        self.add_widget(self.graph)
 
         # Measurement summary
         summary_box = QWidget()
@@ -139,6 +129,7 @@ class DashboardPage(PageBase):
         self.current_value.setText(f"{m.current_a:.2f} A")
         self.power_value.setText(f"{m.power_w:.2f} W")
         self.energy_value.setText(f"{self._total_energy_wh:.2f} Wh")
+        self.graph.update(m)
         self.status_label.setText(
             f"Measurement status: {m.sensor_status}  ({self._ctx.engine.state.value})"
         )

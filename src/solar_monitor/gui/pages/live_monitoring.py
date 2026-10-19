@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from ...core.measurement_engine import EngineState
 from ..theme import ACCENT_GREEN, ACCENT_NAVY, TEXT_SECONDARY
+from ..widgets.power_graph import LiveGraphWidget
 from .base import PageBase
 
 
@@ -65,22 +66,10 @@ class LiveMonitoringPage(PageBase):
 
         self.add_layout(controls)
 
-        # Graphs placeholder
-        graphs = QWidget()
-        graphs.setObjectName("card")
-        gv = QVBoxLayout(graphs)
-        gv.setContentsMargins(14, 14, 14, 14)
-        gh = QLabel("Real-time graphs")
-        gh.setStyleSheet("font-weight: 700; color: #111827;")
-        gv.addWidget(gh)
-        self.graph_note = QLabel(
-            "Voltage, current, and power graphs with bounded data buffers "
-            "(background worker). Graph rendering in Phase 7."
-        )
-        self.graph_note.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; padding-top: 8px;")
-        self.graph_note.setFixedHeight(150)
-        gv.addWidget(self.graph_note)
-        self.add_widget(graphs)
+        # Real-time graphs (bounded data buffers, background worker).
+        self.graph = LiveGraphWidget(history_seconds=300.0)
+        self.graph.setMinimumHeight(260)
+        self.add_widget(self.graph)
 
         # Latest measurement + sampling status
         status = QHBoxLayout()
@@ -136,7 +125,7 @@ class LiveMonitoringPage(PageBase):
 
     def _clear(self):
         self.latest_label.setText("Latest measurement: --")
-        self.graph_note.setText("Graphs cleared.")
+        self.graph.clear()
 
     def toggle_monitoring(self):
         engine = self._ctx.engine
@@ -149,3 +138,13 @@ class LiveMonitoringPage(PageBase):
 
     def _interval_changed(self, value):
         self._ctx.engine.set_sampling_interval(value)
+
+    def on_measurement(self, m, increment_wh, total_energy_wh):
+        self.graph.update(m)
+        self.latest_label.setText(
+            f"Latest measurement: {m.timestamp}  {m.voltage_v:.2f} V, "
+            f"{m.current_a:.2f} A, {m.power_w:.2f} W"
+        )
+
+    def on_backend_error(self, message: str):
+        self.status_label.setText(f"Sampling status: error — {message}")
