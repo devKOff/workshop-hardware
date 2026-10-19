@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solar Panel Performance Monitor</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="header-inner">
+        <h1 class="app-title">Solar Panel Monitor</h1>
+        <div class="header-controls">
+          <span class="badge" id="mode-badge">Loading&hellip;</span>
+          <span class="badge status-badge" id="sensor-badge">Checking&hellip;</span>
+          <a class="btn btn-outline" href="/api/export/csv" title="Export CSV">Export CSV</a>
+          <a class="btn btn-outline" href="/api/export/json" title="Export JSON">Export JSON</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Global status / error banner -->
+      <div id="error-banner" class="banner banner-error hidden" role="alert">
+        <span id="error-banner-text"></span>
+      </div>
+
+      <!-- Measurement cards -->
+      <section class="cards-grid">
+        <article class="card card-voltage">
+          <div class="card-label">Solar Voltage</div>
+          <div class="card-value" id="val-voltage">--</div>
+          <div class="card-unit">V</div>
+          <div class="card-mini" id="mini-voltage">--</div>
+        </article>
+        <article class="card card-current">
+          <div class="card-label">Current</div>
+          <div class="card-value" id="val-current">--</div>
+          <div class="card-unit">mA</div>
+          <div class="card-mini" id="mini-current">-- A</div>
+        </article>
+        <article class="card card-power">
+          <div class="card-label">Instant Power</div>
+          <div class="card-value" id="val-power">--</div>
+          <div class="card-unit">W</div>
+          <div class="card-mini" id="mini-power">--</div>
+        </article>
+        <article class="card card-energy-today">
+          <div class="card-label">Today's Energy</div>
+          <div class="card-value" id="val-energy-today">--</div>
+          <div class="card-unit">Wh</div>
+          <div class="card-mini" id="mini-energy-today">--</div>
+        </article>
+        <article class="card card-energy-total">
+          <div class="card-label">Accumulated Energy</div>
+          <div class="card-value" id="val-energy-total">--</div>
+          <div class="card-unit">Wh</div>
+          <div class="card-mini" id="mini-energy-total">--</div>
+        </article>
+      </section>
+
+      <!-- Live charts -->
+      <section class="charts">
+        <div class="chart-wrap">
+          <canvas id="chart-voltage"></canvas>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-current"></canvas>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-power"></canvas>
+        </div>
+      </section>
+
+      <!-- Historical energy -->
+      <section class="history-panel">
+        <div class="history-header">
+          <h2>Historical Energy</h2>
+          <div class="filters">
+            <label>From <input type="datetime-local" id="filter-start"></label>
+            <label>To <input type="datetime-local" id="filter-end"></label>
+            <button class="btn" id="btn-apply-filters">Apply</button>
+            <button class="btn btn-outline" id="btn-clear-filters">Clear</button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="chart-energy"></canvas>
+        </div>
+      </section>
+
+      <!-- History table -->
+      <section class="table-panel">
+        <div class="table-header">
+          <h2>Measurement History</h2>
+          <div class="table-actions">
+            <span class="muted" id="table-count">0 readings</span>
+          </div>
+        </div>
+        <div class="table-wrap" id="table-wrap">
+          <table id="history-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Voltage (V)</th>
+                <th>Current (mA)</th>
+                <th>Power (W)</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="history-body">
+            </tbody>
+          </table>
+        </div>
+        <div id="empty-state" class="empty-state hidden">
+          <p>No measurement data available.</p>
+          <p class="muted">Start sampling to begin collecting readings.</p>
+        </div>
+        <div id="disconnected-state" class="empty-state hidden">
+          <p><strong>Sensor disconnected.</strong></p>
+          <p class="muted">The physical INA219 sensor cannot be read. Check wiring and I²C address.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/vendor/chart.umd.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+  <script>
+    // Bootstrap the dashboard with server-rendered initial state.
+    window.SOLAR_INIT = {
+      status: {{ status | tojson | safe }},
+      current: {{ current | tojson | safe }},
+      apiBase: "",
+    };
+  </script>
+</body>
+</html>
