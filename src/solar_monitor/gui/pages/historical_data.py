@@ -139,11 +139,12 @@ class HistoricalDataPage(PageBase):
                 QStandardItem("" if row["daily_energy_wh"] is None else f"{row['daily_energy_wh']:.6f}"),
                 QStandardItem("" if row["total_energy_wh"] is None else f"{row['total_energy_wh']:.6f}"),
             ]
+            row_idx = model.rowCount()
             for col, item in enumerate(items):
                 item.setEditable(False)
                 if col in (4, 5, 6, 7, 8, 9):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                model.setItem(model.rowCount(), col, item)
+                model.setItem(row_idx, col, item)
         self.table.setModel(model)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)

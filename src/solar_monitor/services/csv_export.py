@@ -30,6 +30,16 @@ CSV_COLUMNS = [
 ]
 
 
+def _get_field(m, name):
+    """Get a field from either a Measurement object or a sqlite3.Row."""
+    if hasattr(m, name):
+        return getattr(m, name)
+    try:
+        return m[name]
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
 def _format_value(value):
     if value is None:
         return ""
@@ -61,16 +71,16 @@ def export_measurements(csv_path, measurements, session_name=None):
             writer.writerow(CSV_COLUMNS)
             for m in measurements:
                 writer.writerow([
-                    _format_value(getattr(m, "timestamp", "")),
-                    _format_value(getattr(m, "session_id", "")),
-                    _format_value(getattr(m, "sensor_mode", "")),
-                    _format_value(getattr(m, "sensor_status", "")),
-                    _format_value(getattr(m, "voltage_v", "")),
-                    _format_value(getattr(m, "current_a", "")),
-                    _format_value(getattr(m, "power_w", "")),
-                    _format_value(getattr(m, "energy_wh_increment", "")),
-                    _format_value(getattr(m, "daily_energy_wh", "")),
-                    _format_value(getattr(m, "total_energy_wh", "")),
+                    _format_value(_get_field(m, "timestamp")),
+                    _format_value(_get_field(m, "session_id")),
+                    _format_value(_get_field(m, "sensor_mode")),
+                    _format_value(_get_field(m, "sensor_status")),
+                    _format_value(_get_field(m, "voltage_v")),
+                    _format_value(_get_field(m, "current_a")),
+                    _format_value(_get_field(m, "power_w")),
+                    _format_value(_get_field(m, "energy_wh_increment")),
+                    _format_value(_get_field(m, "daily_energy_wh")),
+                    _format_value(_get_field(m, "total_energy_wh")),
                 ])
                 written += 1
         os.replace(tmp_path, csv_path)
