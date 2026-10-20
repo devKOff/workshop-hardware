@@ -13,13 +13,22 @@
 - `.gitignore` already excludes `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `*.csv`, `*.log`; will add `solar_10min_report_*.txt`.
 
 ## Roadmap (this task)
-- [ ] Phase 1: Core — config, sensor interface, simulator, INA219 wrapper, detection, sample model & validation
+- [x] Phase 1: Core — config, sensor interface, simulator, INA219 wrapper, detection, sample model & validation
 - [ ] Phase 2: Logic — sampler/worker, analysis & energy
 - [ ] Phase 3: GUI + export — window, countdown, live readings, charts, CSV & report export
 - [ ] Phase 4: Hardening + docs — README, error handling, shutdown, full test run
 
 ## Status
-- Not started.
+
+Phase 1 complete (commit 052b064, pushed to origin/master).
+
+### Phase 1 report — sensor layer and validation
+- Files created: `monitor_gui/__init__.py`, `monitor_gui/config.py`, `monitor_gui/sample.py`, `monitor_gui/sensor.py`, `tests/test_monitor_gui_sample.py`, `tests/test_monitor_gui_sensor.py`.
+- Files modified: `PROGRESS.md`, `.gitignore` (added `solar_10min_report_*.txt`).
+- Commands run: `python -m compileall -q monitor_gui tests` (clean); `python -m pytest -q tests/test_monitor_gui_sample.py tests/test_monitor_gui_sensor.py -p no:cacheprovider` → **17 passed, 0 failed**. Full repo suite: 5 pre-existing failures in v4 GUI tests (`test_gui_pages.py`, `test_settings_persistence.py` — `SettingsPage.probe()`/`mode_combo` bugs, unrelated to this task, in files not touched). `ruff`/`pyflakes` not installed (not added per rules).
+- Commit: `052b064 feat: sensor layer and validation`; `git status` clean; `git push origin master` succeeded.
+- Known limitations: real INA219 hardware not present on Windows (hardware path correctly reports unavailable → `read_error`); overflow flag read best-effort via the library sensor's public `overflow` attribute; 10-minute hardware run not verified (to be run on the Pi).
+- Next step: Phase 2 — sampler/worker (10-minute run, auto-stop, early stop), analysis and energy.
 
 ## Roadmap (12 phases, all complete)
 
